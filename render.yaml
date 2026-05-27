@@ -39,8 +39,14 @@ services:
       - key: PORT
         value: 8080
 
+      # MAILER: "console" (dev — loga em Render Logs) ou "resend" (prod)
       - key: MAILER
         value: console
+      # Pra ativar envio real, mude MAILER=resend e preencha:
+      - key: RESEND_API_KEY
+        sync: false                    # re_xxxxx do dashboard.resend.com
+      - key: EMAIL_FROM
+        sync: false                    # "Blaxx Pontos <noreply@blaxxpontos.com.br>"
 
       - key: SMS_BACKEND
         value: console
