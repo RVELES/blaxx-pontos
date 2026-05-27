@@ -35,30 +35,44 @@ class EmailProvider(Protocol):
 
 
 class ConsoleMailer:
-    """Provider de dev. Imprime e salva em disco."""
+    """Provider de dev. Imprime e salva em disco.
+
+    Em ambientes sem acesso ao filesystem (ex: Render free tier sem SSH), o
+    arquivo em /tmp/ é inacessivel. Por isso ALEM de salvar o arquivo,
+    logamos o corpo INTEIRO no logger.info — assim o codigo aparece no
+    Render Dashboard → Logs e o admin/dev pode pegar dali pra testar fluxo.
+
+    JAMAIS use ConsoleMailer em producao real — ele expoe senhas/codigos
+    em logs. Pra producao real use SendGrid/Resend/SES (TODO).
+    """
     name = "console"
 
     def __init__(self, outdir: str = "/tmp/blaxx_emails"):
         self.outdir = outdir
-        os.makedirs(outdir, exist_ok=True)
+        try:
+            os.makedirs(outdir, exist_ok=True)
+        except Exception:
+            self.outdir = None  # filesystem read-only → desabilita gravacao
 
     def send(self, msg: EmailMessage) -> bool:
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        path = os.path.join(self.outdir, f"{ts}_{msg.to.replace('@', '_at_')}.txt")
-        content = f"""From: noreply@blaxxpontos.com.br
-To: {msg.to}
-Subject: {msg.subject}
-Date: {ts}
-
-{msg.body_text}
-"""
-        try:
-            with open(path, "w") as f:
-                f.write(content)
-        except Exception as e:
-            logger.warning("ConsoleMailer: falha ao salvar arquivo: %s", e)
-        logger.info("[MAIL DEV] Enviado para %s · Assunto: %s · Arquivo: %s",
-                    msg.to, msg.subject, path)
+        if self.outdir:
+            path = os.path.join(self.outdir, f"{ts}_{msg.to.replace('@', '_at_')}.txt")
+            try:
+                with open(path, "w") as f:
+                    f.write(
+                        f"From: noreply@blaxxpontos.com.br\n"
+                        f"To: {msg.to}\n"
+                        f"Subject: {msg.subject}\n"
+                        f"Date: {ts}\n\n{msg.body_text}\n"
+                    )
+            except Exception as e:
+                logger.warning("ConsoleMailer: falha ao salvar arquivo: %s", e)
+        # Log do corpo inteiro pra Render Logs (acessivel via dashboard)
+        logger.info(
+            "[MAIL DEV] To=%s · Subject=%s\n----- BODY -----\n%s\n----- END -----",
+            msg.to, msg.subject, msg.body_text,
+        )
         return True
 
 
