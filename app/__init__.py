@@ -190,6 +190,7 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
     # antiga). O fallback abaixo cobre os essenciais sem dependência externa.
     @app.after_request
     def _security_headers(resp):
+        from flask import request as _req
         resp.headers.setdefault("Strict-Transport-Security",
                                 "max-age=31536000; includeSubDomains")
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -197,9 +198,17 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
         resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         resp.headers.setdefault("Permissions-Policy",
                                 "camera=(), microphone=(), geolocation=(), payment=()")
-        # CSP estrito — backend é só JSON, nada de inline scripts/styles
-        resp.headers.setdefault("Content-Security-Policy",
-                                "default-src 'none'; frame-ancestors 'none'")
+        # CSP: estrito por default, com excecao pro /docs/ que precisa
+        # carregar Swagger UI do CDN jsdelivr.
+        if _req.path.startswith("/docs"):
+            csp = ("default-src 'self' https://cdn.jsdelivr.net; "
+                   "img-src 'self' data:; "
+                   "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                   "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                   "frame-ancestors 'none'")
+        else:
+            csp = "default-src 'none'; frame-ancestors 'none'"
+        resp.headers.setdefault("Content-Security-Policy", csp)
         return resp
 
     # PIX provider — Sprint 3: seleção via env var PIX_PROVIDER

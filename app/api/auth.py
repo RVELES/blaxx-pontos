@@ -322,6 +322,37 @@ def login():
             "locked_until": user.locked_until.isoformat() if user.locked_until else None,
         }), 423  # Locked
 
+    # Sprint 3 (S3-4): Lock por IP em adicao ao lock por user.
+    # Atacante com lista de emails poderia tentar 5 vezes em cada um sem
+    # ser pego pelo lock-por-user. Aqui contamos falhas POR IP nos
+    # ultimos 15 min e bloqueamos a partir de 20.
+    from ..models import LoginAttempt
+    from sqlalchemy import func as _sa_func
+    try:
+        client_ip = (request.headers.get("Fly-Client-IP", "").strip()
+                     or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip())
+                     or request.remote_addr or "unknown")
+        window_start = datetime.now(timezone.utc) - timedelta(minutes=15)
+        fails_by_ip = db.session.query(_sa_func.count(LoginAttempt.id)).filter(
+            LoginAttempt.ip == client_ip,
+            LoginAttempt.success == False,  # noqa: E712
+            LoginAttempt.created_at >= window_start,
+        ).scalar() or 0
+        if fails_by_ip >= 20:
+            audit_svc.log_event("login_blocked_by_ip",
+                                user_id=user.id if user else None,
+                                status="warn",
+                                reason=f"{fails_by_ip} fails in last 15min",
+                                extra={"fails_window": fails_by_ip,
+                                       "client_ip": client_ip})
+            db.session.commit()
+            return jsonify({
+                "error": "Muitas tentativas a partir desta rede. Aguarde 15 minutos.",
+                "code": "IP_RATE_LIMITED",
+            }), 429
+    except Exception:
+        current_app.logger.warning("S3-4 ip-lock check falhou", exc_info=True)
+
     # Suspensa / desativada
     if user is not None and user.status != "active":
         audit_svc.log_login_attempt(identifier, success=False,
@@ -1098,19 +1129,24 @@ def export_account_data():
 
 
 # =========================================================================
-# Sprint 4 (S4-10) · Terms versioning + re-aceite
+# Sprint 4 (S4-10) · Terms versioning + re-aceite quando versao muda
 # =========================================================================
 
 @bp.get("/terms/current")
 def terms_current_version():
-    return jsonify({"version": current_app.config.get("TERMS_CURRENT_VERSION", "1.0")})
+    """Devolve a versao atual dos termos."""
+    return jsonify({
+        "version": current_app.config.get("TERMS_CURRENT_VERSION", "1.0"),
+    })
 
 
 @bp.post("/terms/reaccept")
 @login_required
 def terms_reaccept():
+    """Usuario re-aceita os 3 documentos na versao atual."""
     data = request.get_json(silent=True) or {}
-    if not (data.get("accept_terms") and data.get("accept_privacy") and data.get("accept_lgpd")):
+    if not (data.get("accept_terms") and data.get("accept_privacy")
+            and data.get("accept_lgpd")):
         return jsonify({"error": "Aceite dos 3 documentos obrigatorio"}), 400
     user = g.current_user
     ver = current_app.config.get("TERMS_CURRENT_VERSION", "1.0")
@@ -1122,11 +1158,13 @@ def terms_reaccept():
     ip = (request.headers.get("Fly-Client-IP", "").strip()
           or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
           or request.remote_addr or "")
-    ua = (request.headers.get("User-Agent") or "")[:500]
     try:
-        consent = UserConsent(user_id=user.id, document="all", version=ver,
-                              accepted_at=now, ip=ip, user_agent=ua)
-        db.session.add(consent)
+        for ctype in ["terms", "privacy", "lgpd"]:
+            consent = UserConsent(
+                user_id=user.id, type=ctype, version=ver,
+                accepted_at=now, ip=ip,
+            )
+            db.session.add(consent)
     except Exception:
         current_app.logger.warning("UserConsent reaccept falhou", exc_info=True)
     audit_svc.log_event("terms_reaccepted", user_id=user.id,
