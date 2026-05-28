@@ -255,6 +255,8 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
     app.register_blueprint(admin_bp, url_prefix="/admin")
     # Onda 3 — telefone + 2FA SMS + sessões + access-log
     app.register_blueprint(security_bp, url_prefix="/user")
+    # Sprint 5 (S5-5) — Swagger UI servindo openapi.yaml
+    app.register_blueprint(docs_bp, url_prefix="/docs")
 
     with app.app_context():
         db.create_all()
