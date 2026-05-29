@@ -270,6 +270,7 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
     with app.app_context():
         db.create_all()
         _apply_lightweight_migrations(app)
+        _autoseed_partners_if_empty(app)
 
     # ----- Healthchecks (Wave 6 — robustez operacional) ---------------------
     # /health    → resposta rica: uptime, versao, timestamp. Usado pelo Render
@@ -426,3 +427,70 @@ def _apply_lightweight_migrations(app):
                         app.logger.warning("migration skip (%s): %s", e, sql)
         except Exception:
             app.logger.exception("_apply_lightweight_migrations falhou")
+
+
+def _autoseed_partners_if_empty(app):
+    """Auto-seed dos 258 parceiros Livelo se a tabela Partner estiver vazia.
+
+    Motivacao: o Render free tier pode wipear SQLite em restarts (disco
+    efemero) e o DATABASE_URL pode apontar pra um Postgres recem-criado
+    sem dados. Em ambos os casos, o site sobe SEM parceiros — UI fica
+    vazia, parece bug. Auto-seed resolve isso de forma idempotente.
+
+    Idempotencia: so roda se Partner.count() == 0. Em DB ja populado
+    (Neon prod com dados reais), nao faz nada — sem custo.
+
+    O arquivo data/livelo_partners.json esta versionado no repo, entao
+    chega no Render junto com o codigo.
+    """
+    import json
+    import os as _os
+    from .models import Partner
+
+    try:
+        existing_count = db.session.query(Partner).count()
+        if existing_count > 0:
+            return  # ja tem parceiros, nao re-seedar
+
+        json_path = _os.path.join(
+            _os.path.dirname(__file__), "..", "data", "livelo_partners.json"
+        )
+        if not _os.path.exists(json_path):
+            app.logger.warning("auto-seed: livelo_partners.json nao encontrado em %s", json_path)
+            return
+
+        # Mapa emoji por categoria (mesmo do seed_livelo.py)
+        emoji_by_cat = {
+            "Moda":"👗","Viagens":"✈️","Beleza":"💄","Seguros":"🛡️",
+            "Esportes":"⚽","Eletrônicos":"📱","Consórcio":"🏦",
+            "Supermercado":"🛒","Casa & Decoração":"🏠","Alimentação":"🍴",
+            "Saúde":"⚕️","Educação":"🎓","Pet Shop":"🐾","Combustível":"⛽",
+            "Farmácias":"💊","Streaming":"📺","E-commerce":"📦",
+            "Restaurantes":"🍽️","Cartões":"💳","Bancos":"🏦",
+            "Telecom":"📞","Outros":"🎯",
+        }
+
+        with open(json_path, "r", encoding="utf-8") as f:
+            partners_data = json.load(f)
+
+        created = 0
+        for p in partners_data:
+            name = (p.get("name") or "").strip()
+            if not name:
+                continue
+            category = (p.get("category") or "Outros").strip()
+            partner = Partner(
+                name=name,
+                category=category,
+                logo_emoji=emoji_by_cat.get(category, "🎯"),
+                accrual_rule=(p.get("accrual_rule") or "Pontos por R$").strip(),
+                description=(p.get("description") or "")[:300],
+                is_active=True,
+            )
+            db.session.add(partner)
+            created += 1
+        db.session.commit()
+        app.logger.info("[AUTO-SEED] %d parceiros Livelo importados", created)
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("auto-seed de parceiros falhou — site sobe sem dados")
