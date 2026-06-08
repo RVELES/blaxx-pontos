@@ -407,29 +407,109 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
 
     return app
 def _apply_lightweight_migrations(app):
-    """Stub: ALTER TABLE no startup. Substituir por Alembic."""
-    from sqlalchemy import inspect, text
+    """Stub: ALTER TABLE no startup. Substituir por Alembic.
+
+    `db.create_all()` só cria TABELAS que faltam — ele NUNCA faz ALTER pra
+    adicionar COLUNAS novas a uma tabela já existente. Quando o model ganha
+    colunas (ex.: google_sub, phone, mfa_*, status...) e o Postgres de prod
+    foi criado antes delas, todo `SELECT users.<coluna>` quebra com
+    "column does not exist" → 500 em login/forgot-password/etc.
+
+    `_sync_model_columns` resolve isso de forma genérica e idempotente:
+    compara cada tabela do metadata com as colunas reais e adiciona o que
+    faltar (com DEFAULT+NOT NULL correto quando a coluna é obrigatória).
+    """
     with app.app_context():
         try:
             db.create_all()
-            insp = inspect(db.engine)
-            if not insp.has_table("users"):
-                return
-            existing = {c["name"] for c in insp.get_columns("users")}
-            for col, sql in [
-                ("is_deleted", "ALTER TABLE users ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"),
-                ("deleted_at", "ALTER TABLE users ADD COLUMN deleted_at TIMESTAMP"),
-            ]:
-                if col not in existing:
-                    try:
-                        db.session.execute(text(sql))
-                        db.session.commit()
-                        app.logger.info("migration: %s", sql)
-                    except Exception as e:
-                        db.session.rollback()
-                        app.logger.warning("migration skip (%s): %s", e, sql)
+            _sync_model_columns(app)
         except Exception:
             app.logger.exception("_apply_lightweight_migrations falhou")
+
+
+def _sync_model_columns(app):
+    """Adiciona colunas faltantes (model x tabela real) via ALTER TABLE.
+
+    Idempotente: só adiciona o que não existe. Seguro em tabela populada:
+    colunas NOT NULL recebem um DEFAULT de servidor pra backfill das linhas
+    antigas; quando não dá pra inferir um default seguro, a coluna entra
+    como NULLABLE (preferimos um login funcionando a um schema 100% fiel).
+    """
+    from sqlalchemy import inspect, text
+    from sqlalchemy.types import Boolean, Integer, DateTime, Date
+
+    insp = inspect(db.engine)
+    dialect = db.engine.dialect
+
+    def _server_default_sql(col):
+        """SQL literal pro DEFAULT de uma coluna NOT NULL, ou None."""
+        d = col.default
+        # Default escalar (não-callable): usa o valor literal.
+        if d is not None and getattr(d, "is_scalar", False):
+            val = d.arg
+            if isinstance(val, bool):
+                return "TRUE" if val else "FALSE"
+            if isinstance(val, (int, float)):
+                return str(val)
+            if isinstance(val, str):
+                return "'" + val.replace("'", "''") + "'"
+        # Default callable (ex.: _utcnow/_new_uuid) ou ausente: inferimos
+        # por tipo pra conseguir backfillar linhas existentes.
+        t = col.type
+        if isinstance(t, Boolean):
+            return "FALSE"
+        if isinstance(t, Integer):
+            return "0"
+        if isinstance(t, (DateTime, Date)):
+            return "CURRENT_TIMESTAMP"
+        return None
+
+    for table in db.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in existing:
+                continue
+            try:
+                col_type = col.type.compile(dialect=dialect)
+            except Exception:
+                # Tipo não compilável neste dialeto — pula com aviso.
+                app.logger.warning(
+                    "migration skip (tipo) %s.%s", table.name, col.name
+                )
+                continue
+            base_ddl = f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col_type}'
+            ddl = base_ddl
+            if not col.nullable:
+                default_sql = _server_default_sql(col)
+                if default_sql is not None:
+                    ddl += f" DEFAULT {default_sql} NOT NULL"
+                # Sem default seguro → deixa NULLABLE (não acrescenta NOT NULL)
+                # pra não falhar o ALTER numa tabela com linhas antigas.
+            try:
+                db.session.execute(text(ddl))
+                db.session.commit()
+                app.logger.info("migration add column: %s", ddl)
+            except Exception as e:
+                db.session.rollback()
+                # Fallback: se o ALTER com NOT NULL/DEFAULT falhar (quirk de
+                # dialeto, ex.: SQLite não aceita DEFAULT não-constante),
+                # tenta a versão NULLABLE simples — o importante é a coluna
+                # PASSAR a existir, pra o SELECT parar de dar 500.
+                if ddl != base_ddl:
+                    try:
+                        db.session.execute(text(base_ddl))
+                        db.session.commit()
+                        app.logger.info(
+                            "migration add column (nullable fallback): %s",
+                            base_ddl,
+                        )
+                        continue
+                    except Exception as e2:
+                        db.session.rollback()
+                        e = e2
+                app.logger.warning("migration skip (%s): %s", e, ddl)
 
 
 def _autoseed_partners_if_empty(app):
