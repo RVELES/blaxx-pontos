@@ -39,7 +39,7 @@ from ..security import (
     normalize_phone,
     is_adult,
 )
-from ..services.mailer import send_password_reset, send_email_verification
+from ..services.mailer import send_password_reset, send_email_verification, send_welcome
 from ..services import audit as audit_svc
 
 bp = Blueprint("auth", __name__)
@@ -286,10 +286,12 @@ def register():
 
     db.session.commit()
 
+    # E-mail de CONFIRMAÇÃO DE ADESÃO (boas-vindas) + código de verificação
+    # no mesmo envio, pra não depender de 2 e-mails chegarem.
     try:
-        send_email_verification(user.email, user.name, code)
+        send_welcome(user.email, user.name, code=code)
     except Exception as e:
-        current_app.logger.warning("Falha ao enviar e-mail de verificação: %s", e)
+        current_app.logger.warning("Falha ao enviar e-mail de adesão: %s", e)
 
     return jsonify(_issue_tokens(user)), 201
 

@@ -232,6 +232,37 @@ def send_password_reset(to_email: str, name: str, reset_url: str,
     return get_mailer().send(EmailMessage(to=to_email, subject=subject, body_text=body))
 
 
+def send_welcome(to_email: str, name: str, code: str | None = None) -> bool:
+    """E-mail de CONFIRMAÇÃO DE ADESÃO enviado ao concluir o cadastro.
+
+    Diferente do e-mail de verificação (que carrega o código), este confirma
+    de forma calorosa que a conta foi criada e a carteira de pontos está
+    ativa. Se `code` for passado, reforça o passo de confirmação de e-mail
+    no mesmo envio (evita depender de 2 e-mails chegarem).
+    """
+    first = (name or "").split(" ")[0] or "cliente"
+    extra_code = (
+        f"\nPara liberar compra, envio e resgate de pontos, confirme seu e-mail\n"
+        f"com o código abaixo (válido por 30 minutos):\n\n  Código: {code}\n"
+        if code else ""
+    )
+    body = (
+        f"Olá {first},\n\n"
+        f"Sua adesão ao Blaxx Pontos foi confirmada! 🎉\n\n"
+        f"Sua carteira de pontos já está ativa e você ganhou 500 pontos de\n"
+        f"boas-vindas. A partir de agora você pode acumular pontos no dia a dia\n"
+        f"e trocar por vouchers, milhas e cashback no Pix.\n"
+        f"{extra_code}\n"
+        f"Bons pontos!\n\n"
+        f"— Equipe Blaxx Pontos"
+    )
+    return get_mailer().send(EmailMessage(
+        to=to_email,
+        subject="Blaxx Pontos · Adesão confirmada — bem-vindo!",
+        body_text=body,
+    ))
+
+
 def send_email_verification(to_email: str, name: str, code: str) -> bool:
     msg = EmailMessage(
         to=to_email,
