@@ -30,7 +30,7 @@ class PasswordIssue(NamedTuple):
     message: str
 
 
-PASSWORD_MIN_LENGTH = 10  # Onda 2: política mais rígida (spec do user)
+PASSWORD_MIN_LENGTH = 7  # Spec do user: mínimo 7 caracteres, qualquer formato
 
 
 def validate_password_strength(
@@ -41,65 +41,17 @@ def validate_password_strength(
     cpf: str | None = None,
     phone: str | None = None,
 ) -> list[PasswordIssue]:
-    """Retorna lista de problemas. Lista vazia = senha forte.
+    """Retorna lista de problemas. Lista vazia = senha aceita.
 
-    Política Onda 2 (Spec do user):
-      - Mínimo 10 caracteres
-      - Pelo menos 1 maiúscula
-      - Pelo menos 1 minúscula
-      - Pelo menos 1 número
-      - Pelo menos 1 caractere especial
-      - Não pode estar em COMMON_PASSWORDS
-      - Não pode ter 4+ caracteres repetidos seguidos
-      - Não pode ter sequências triviais (1234, abcd)
-      - Não pode conter email/CPF/nome/telefone do próprio usuário
+    Política (spec do user): senha livre, no formato que o cliente quiser,
+    bastando ter no mínimo 7 caracteres. Os demais parâmetros são mantidos
+    por compatibilidade de assinatura, mas não impõem mais restrições.
     """
     issues: list[PasswordIssue] = []
     if len(password) < PASSWORD_MIN_LENGTH:
         issues.append(PasswordIssue(
             "too_short", f"Senha precisa ter no mínimo {PASSWORD_MIN_LENGTH} caracteres."
         ))
-    if not re.search(r"[A-Z]", password):
-        issues.append(PasswordIssue("no_uppercase", "Inclua pelo menos uma letra maiúscula."))
-    if not re.search(r"[a-z]", password):
-        issues.append(PasswordIssue("no_lowercase", "Inclua pelo menos uma letra minúscula."))
-    if not re.search(r"[0-9]", password):
-        issues.append(PasswordIssue("no_digit", "Inclua pelo menos um número."))
-    if not re.search(r"[^A-Za-z0-9]", password):
-        issues.append(PasswordIssue("no_symbol", "Inclua pelo menos um caractere especial (ex: ! @ # $)."))
-    if password.lower() in COMMON_PASSWORDS:
-        issues.append(PasswordIssue("common", "Senha muito comum. Escolha algo único."))
-    if re.search(r"(.)\1{3,}", password):
-        issues.append(PasswordIssue("repeats", "Não use 4+ caracteres iguais seguidos."))
-    if _has_trivial_sequence(password):
-        issues.append(PasswordIssue("sequence", "Não use sequências óbvias (1234, abcd, qwer)."))
-
-    # Blocks: senha contendo email/cpf/nome/telefone do próprio usuário
-    pw_lower = password.lower()
-    forbidden_terms: list[tuple[str, str]] = []
-    if email:
-        local = email.split("@")[0].lower()
-        if len(local) >= 4:
-            forbidden_terms.append((local, "Não use partes do seu e-mail na senha."))
-    if cpf:
-        digits = re.sub(r"\D", "", cpf)
-        if len(digits) >= 6 and digits in password:
-            forbidden_terms.append((digits, "Não use seu CPF na senha."))
-    if name:
-        for word in name.split():
-            w = word.lower()
-            if len(w) >= 4 and w in pw_lower:
-                forbidden_terms.append((w, "Não use seu nome na senha."))
-                break
-    if phone:
-        digits = re.sub(r"\D", "", phone)
-        if len(digits) >= 6 and digits[-8:] in password:
-            forbidden_terms.append((digits, "Não use seu telefone na senha."))
-    for term, msg in forbidden_terms:
-        if term in pw_lower:
-            issues.append(PasswordIssue("self_reference", msg))
-            break
-
     return issues
 
 
