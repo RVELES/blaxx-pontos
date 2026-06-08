@@ -412,3 +412,42 @@ def charge_events_sse(charge_id: str):
         "Connection": "keep-alive",
     }
     return Response(stream_with_context(gen()), headers=headers)
+
+
+@bp.get("/my-charges")
+@login_required
+def my_charges():
+    """Lista as charges do próprio usuário (status, valor, paid_at)."""
+    rows = (
+        db.session.query(PixCharge)
+        .filter_by(user_id=g.current_user.id)
+        .order_by(PixCharge.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    return jsonify({"items": [c.to_dict() for c in rows]})
+
+
+@bp.post("/simulate-payment")
+@login_required
+def simulate_payment():
+    """Atalho de demonstração: simula que o usuário pagou o PIX agora.
+
+    SOMENTE no provider mock. Em produção real, o webhook do provedor
+    (Mercado Pago etc.) é o caminho oficial de confirmação.
+    """
+    if current_app.extensions["pix_provider"].name != "mock":
+        return jsonify({"error": "endpoint só está disponível no provider mock"}), 403
+
+    data = request.get_json(silent=True) or {}
+    charge_id = data.get("charge_id")
+    charge = db.session.get(PixCharge, charge_id)
+    if charge is None or charge.user_id != g.current_user.id:
+        return jsonify({"error": "charge não encontrada"}), 404
+
+    try:
+        charge = purchase_svc.confirm_payment(charge.txid)
+    except purchase_svc.PixError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify({"ok": True, "charge": charge.to_dict()})
