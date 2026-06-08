@@ -30,6 +30,13 @@ def send():
     except (TypeError, ValueError):
         return jsonify({"error": "amount_pts deve ser inteiro"}), 400
 
+    # Idempotência (anti double-submit): chave do cliente via header padrão
+    # Idempotency-Key ou campo request_id no body. Dispositivo/plataforma p/
+    # auditoria via headers (todos opcionais — clientes antigos seguem funcionando).
+    idem_key = request.headers.get("Idempotency-Key") or data.get("request_id")
+    device_id = request.headers.get("X-Device-Id") or data.get("device_id")
+    platform = request.headers.get("X-Platform") or data.get("platform")
+
     try:
         transfer = transfer_svc.send(
             g.current_user,
@@ -37,6 +44,9 @@ def send():
             amount_pts=amount,
             password=data.get("password") or "",
             message=data.get("message"),
+            idempotency_key=idem_key,
+            device_id=device_id,
+            platform=platform,
         )
     except transfer_svc.TransferError as exc:
         return jsonify({"error": str(exc)}), 400
