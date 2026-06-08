@@ -19,7 +19,7 @@ from flask import Blueprint, abort, current_app, g, jsonify, request
 from ..extensions import db, limiter
 from ..models import PixCharge
 from ..services import purchase as purchase_svc
-from .auth import login_required, email_verified_required
+from .auth import login_required
 
 bp = Blueprint("pix", __name__)
 
@@ -135,7 +135,7 @@ def provider_info():
 
 @bp.post("/charge")
 @login_required
-@email_verified_required
+# Compra de pontos não exige mais e-mail verificado (decisão de produto).
 def create_charge():
     """Cria charge PIX via provider configurado (MP em prod).
 
@@ -248,7 +248,7 @@ def webhook():
 
 @bp.post("/custom-charge")
 @login_required
-@email_verified_required
+# Compra de pontos (valor livre) não exige mais e-mail verificado.
 @limiter.limit("10 per hour")
 def create_custom_charge():
     """Cria charge com valor livre apontando para o QR PIX estático Blaxx.
