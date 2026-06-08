@@ -693,7 +693,7 @@ def forgot_password():
 
         # URL absoluta — em prod virá do FRONTEND_URL config
         frontend = current_app.config.get(
-            "FRONTEND_URL", "https://blaxxpontos.netlify.app"
+            "FRONTEND_URL", "https://blaxx-pontos-app.netlify.app"
         )
         # Apontamos pra rota /redefinir-senha.html — caminho consistente
         # entre Netlify (web), EXE local (file://...) e Mac/iOS.

@@ -63,10 +63,10 @@ services:
         sync: false                    # mesmo formato
 
       - key: CORS_ORIGINS
-        sync: false                    # https://blaxxpontos.netlify.app,https://blaxxpontos.com.br
+        sync: false                    # https://blaxx-pontos-app.netlify.app (o app.py já garante este domínio na allow-list)
 
       - key: FRONTEND_URL
-        sync: false                    # https://blaxxpontos.netlify.app
+        sync: false                    # https://blaxx-pontos-app.netlify.app
 
       # Google OAuth — Web Client ID do Google Cloud Console.
       # Backend aceita 3 nomes equivalentes (em ordem de prioridade):
@@ -78,7 +78,10 @@ services:
       - key: GOOGLE_CLIENT_ID
         sync: false                    # fallback — pode deixar vazio se setar GOOGLE_WEB_CLIENT_ID
       - key: GOOGLE_IOS_CLIENT_ID
-        sync: false                    # opcional, só se houver app iOS
+        sync: false                    # OBRIGATÓRIO p/ login Google no app Mac/iOS:
+                                       # 105341431878-3msc2p3tjk3p5ro6i34d0b0qks3nf9dj.apps.googleusercontent.com
+                                       # Sem isto, o id_token (aud=client iOS) é rejeitado:
+                                       # "Token Google inválido ou expirado" (HTTP 401).
 
       # Twilio (opcional — só se SMS_BACKEND=twilio)
       - key: TWILIO_ACCOUNT_SID
@@ -87,3 +90,10 @@ services:
         sync: false
       - key: TWILIO_FROM_PHONE
         sync: false
+
+      # PIX — chave recebedora (só usada pelo provider 'mock'/estático).
+      # Default no código = 65975e3a-57b7-47a9-bfcb-13b3c11e011d.
+      # ATENÇÃO: com PIX_PROVIDER=mercadopago esta chave é IGNORADA — o
+      # dinheiro cai na conta do MP_ACCESS_TOKEN, não nesta chave.
+      - key: PIX_MERCHANT_KEY
+        sync: false                    # chave PIX aleatória/e-mail/CPF do recebedor
