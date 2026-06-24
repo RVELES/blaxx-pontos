@@ -105,6 +105,18 @@ def _init_sentry() -> None:
 
 
 def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
+    # CI-3: valida envs ANTES de qualquer init pesado — falha cedo com mensagem
+    # clara em vez de quebrar lá embaixo num import/init obscuro. Em dev/test
+    # só warn no logger; em prod, EnvError derruba o boot (e Render Events
+    # mostra a mensagem inteira no stderr).
+    from .env_schema import validate_env
+    issues = validate_env(strict=False)
+    if issues:
+        for i in issues:
+            print(f"[env_schema] {i}", file=__import__("sys").stderr)
+        if os.environ.get("FLASK_ENV", "production").lower() not in ("development", "test"):
+            raise RuntimeError("Env validation failed (veja stderr) — recusando subir em prod.")
+
     # Sentry deve ser inicializado ANTES do Flask app pra capturar erros de boot
     _init_sentry()
 
@@ -337,15 +349,48 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
 
     @app.get("/readyz")
     def readyz():
-        # Readiness — checa DB com query trivial. Se DB caiu, devolve 503
-        # pra monitor parar de mandar trafego (em setup com load balancer).
+        # Readiness "esperta" — Render Pro usa esse endpoint pra decidir se
+        # promove o novo processo. Devolve 503 se qualquer dependência crítica
+        # estiver fora; assim deploy quebrado fica em loop sem trocar tráfego.
+        #
+        # Checks (rápidos, idempotentes):
+        #   1) DB acessível (SELECT 1) — sem DB não vale nada
+        #   2) Rotas críticas registradas — pega regressão silenciosa (caso
+        #      de blueprint que não foi importado por algum motivo)
+        #   3) JWT manager configurado — sem isso, login quebra silenciosamente
+        checks: dict[str, str] = {}
+        ok = True
+
+        # 1) DB
         try:
             from sqlalchemy import text
             db.session.execute(text("SELECT 1"))
-            return {"ready": True}
+            checks["db"] = "ok"
         except Exception as e:
-            app.logger.warning("readyz: DB indisponivel: %s", e)
-            return {"ready": False, "reason": "db_unavailable"}, 503
+            ok = False
+            checks["db"] = f"FAIL: {type(e).__name__}"
+
+        # 2) Rotas críticas (verifica blueprints carregados)
+        rules = {str(r) for r in app.url_map.iter_rules()}
+        REQUIRED = {"/health", "/auth/login", "/auth/me", "/auth/logout",
+                    "/auth/refresh", "/push/subscribe", "/redeem/", "/transfer/"}
+        missing = REQUIRED - rules
+        if missing:
+            ok = False
+            checks["routes"] = f"FAIL: missing {sorted(missing)}"
+        else:
+            checks["routes"] = "ok"
+
+        # 3) JWT manager
+        try:
+            assert jwt is not None and hasattr(jwt, "_decode_jwt_from_config")
+            checks["jwt"] = "ok"
+        except Exception as e:
+            ok = False
+            checks["jwt"] = f"FAIL: {type(e).__name__}"
+
+        body = {"ready": ok, "checks": checks}
+        return (body, 200) if ok else (body, 503)
 
     # ----- Servir o frontend (renderer/) na mesma origem (modo web, sem Electron) -----
     @app.get("/app/")

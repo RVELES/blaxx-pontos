@@ -28,8 +28,12 @@ services:
                --error-logfile -
                run:app
 
-    # Healthcheck — Render verifica antes de marcar deploy como "live"
-    healthCheckPath: /health
+    # Healthcheck — /readyz é "esperto": valida DB + rotas críticas + JWT
+    # registrados. Render Pro só promove o novo processo quando recebe 200,
+    # então deploy quebrado (ex.: BadDsn no boot, blueprint não registrado)
+    # fica em loop sem trocar tráfego. /health (uptime simples) fica como
+    # liveness e pra monitores externos (statuspage, uptimerobot).
+    healthCheckPath: /readyz
 
     # Env vars NÃO-secretas (settings sensíveis vão via dashboard como secrets)
     envVars:
@@ -97,3 +101,39 @@ services:
       # dinheiro cai na conta do MP_ACCESS_TOKEN, não nesta chave.
       - key: PIX_MERCHANT_KEY
         sync: false                    # chave PIX aleatória/e-mail/CPF do recebedor
+
+      # PIX provider — CRÍTICO. "mock" = simulador (homologação). "mercadopago"
+      # = cobrança real. Mudar pra "mercadopago" só quando MP_ACCESS_TOKEN tiver
+      # token de produção do MercadoPago Connect. Validado por env_schema.py.
+      - key: PIX_PROVIDER
+        value: mock
+      - key: MP_ACCESS_TOKEN
+        sync: false                    # APP_USR-xxx do MercadoPago (gated)
+
+      # SEC-1: cookies httpOnly precisam Secure=True em produção (HTTPS).
+      # Em dev local (HTTP), o browser permite cookies Secure mesmo assim em
+      # localhost — mas pra defesa-em-profundidade, recomenda-se "1" sempre.
+      - key: BLAXX_COOKIE_SECURE
+        value: "1"
+
+      # Sentry — observability, gated. Sem DSN setado, _init_sentry pula
+      # silenciosamente. DSN inválido (placeholder) é REJEITADO pelo guard
+      # (não derruba mais o boot, vide hotfix e5900d9 + ci.yml matrix).
+      - key: SENTRY_DSN
+        sync: false                    # https://KEY@oXXX.ingest.sentry.io/PROJECT_ID
+      - key: SENTRY_TRACES_RATE
+        value: "0.05"                  # 5% das transactions
+      - key: RELEASE_VERSION
+        sync: false                    # opcional; útil pra Sentry release tracking
+
+      # Web Push (VAPID) — gated. Sem VAPID_PRIVATE_KEY, /push/subscribe
+      # devolve 503 "gated" e o cliente trata sem erro. Vide LAUNCH_PENDING_CREDENTIALS.md §6.
+      - key: VAPID_PRIVATE_KEY
+        sync: false                    # gerar com: npx -y web-push generate-vapid-keys --json
+      - key: VAPID_SUBJECT
+        value: "mailto:contato@blaxxpontos.com.br"
+
+      # FLASK_ENV — habilita strict mode do env_schema (CI-3). Em prod, envs
+      # inválidas derrubam o boot ANTES de erro obscuro em runtime.
+      - key: FLASK_ENV
+        value: production
