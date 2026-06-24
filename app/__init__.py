@@ -36,7 +36,13 @@ def _init_sentry() -> None:
     o evento. Pra rotacionar DSN, basta trocar a env var.
     """
     dsn = os.environ.get("SENTRY_DSN", "").strip()
-    if not dsn:
+    # Guard de DSN: aceita só URLs válidas (https://key@host/project). Rejeita
+    # placeholder como "https://", "<your-dsn-here>", "0" etc. SEM derrubar o
+    # boot — em produção o app PRECISA subir mesmo com DSN mal configurado.
+    if not dsn or not (dsn.startswith("https://") or dsn.startswith("http://")):
+        return
+    # Sanity adicional: tem que ter "@" (separador key/host)
+    if "@" not in dsn:
         return
     try:
         import sentry_sdk
@@ -78,15 +84,24 @@ def _init_sentry() -> None:
             pass
         return event
 
-    sentry_sdk.init(
-        dsn=dsn,
-        environment=os.environ.get("FLASK_ENV", "production"),
-        release=os.environ.get("RELEASE_VERSION", "0.1.0"),
-        integrations=[FlaskIntegration(), SqlalchemyIntegration()],
-        traces_sample_rate=float(os.environ.get("SENTRY_TRACES_RATE", "0.05")),
-        send_default_pii=False,  # nunca mandar PII direto
-        before_send=before_send,
-    )
+    # Defesa em profundidade: qualquer erro de init (DSN malformado, transport
+    # offline no boot, version mismatch da lib) NÃO pode derrubar o app. Sentry
+    # é observability — falhar o boot porque o observer quebrou é o pior caso.
+    try:
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=os.environ.get("FLASK_ENV", "production"),
+            release=os.environ.get("RELEASE_VERSION", "0.1.0"),
+            integrations=[FlaskIntegration(), SqlalchemyIntegration()],
+            traces_sample_rate=float(os.environ.get("SENTRY_TRACES_RATE", "0.05")),
+            send_default_pii=False,  # nunca mandar PII direto
+            before_send=before_send,
+        )
+    except Exception as exc:
+        # Log direto pro stderr — logger ainda não está configurado neste ponto.
+        import sys
+        print(f"[sentry] init falhou ({type(exc).__name__}): {exc} — seguindo sem Sentry",
+              file=sys.stderr)
 
 
 def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
