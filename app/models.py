@@ -475,6 +475,14 @@ class PixPayout(db.Model):
 class Transfer(db.Model):
     __tablename__ = "transfers"
 
+    # Estados — ToS Seção 9.2 (janela de 60s):
+    #   pending:   acabou de ser criada, dentro da janela de cancelamento
+    #   committed: já passou da janela ou foi promovida; recipient creditado
+    #   cancelled: cancelada pelo sender antes da janela fechar
+    STATUS_PENDING = "pending"
+    STATUS_COMMITTED = "committed"
+    STATUS_CANCELLED = "cancelled"
+
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_uuid)
     sender_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     recipient_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -482,6 +490,10 @@ class Transfer(db.Model):
     message: Mapped[str | None] = mapped_column(String(140), nullable=True)
     receipt_code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    # Janela de 60s — ToS Seção 9.2
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default=STATUS_COMMITTED)
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     @staticmethod
     def make_receipt() -> str:
@@ -490,6 +502,23 @@ class Transfer(db.Model):
         suffix = secrets.token_hex(4).upper()
         mid = secrets.token_hex(2).upper()
         return f"ENV-{year}-{mid}-{suffix}"
+
+    @property
+    def is_pending(self) -> bool:
+        return self.status == self.STATUS_PENDING
+
+    @property
+    def is_cancellable(self) -> bool:
+        """True se ainda dentro da janela e ainda no estado pending."""
+        if not self.is_pending:
+            return False
+        if self.committed_at is None:
+            return True  # sem deadline = aceita cancel (não deveria acontecer)
+        now = datetime.now(timezone.utc)
+        target = self.committed_at
+        if target.tzinfo is None:
+            target = target.replace(tzinfo=timezone.utc)
+        return now < target
 
     def to_dict(self) -> dict:
         return {
@@ -500,6 +529,10 @@ class Transfer(db.Model):
             "message": self.message,
             "receipt_code": self.receipt_code,
             "created_at": self.created_at.isoformat(),
+            "status": self.status,
+            "committed_at": self.committed_at.isoformat() if self.committed_at else None,
+            "cancelled_at": self.cancelled_at.isoformat() if self.cancelled_at else None,
+            "is_cancellable": self.is_cancellable,
         }
 
 
@@ -841,18 +874,51 @@ class RefreshTokenDB(db.Model):
 
 
 class UserConsent(db.Model):
-    """Histórico versionado de consentimentos (LGPD/Termos/Privacidade)."""
+    """Histórico versionado de consentimentos (LGPD/Termos/Privacidade).
+
+    Cumpre o **Art. 8º §5º LGPD** (consentimento granular, revogável, com
+    evidência). Cada aceite gera uma linha imutável — quando a versão do
+    termo muda, o usuário é solicitado a aceitar de novo e nova linha é
+    criada (a anterior fica como histórico).
+
+    Campos de evidência:
+      - `accepted_at` + `ip` + `user_agent` → onde/quando/como o aceite foi feito
+      - `text_hash` → SHA-256 do texto do termo que o usuário viu nessa data
+        (prova que o texto não foi alterado retroativamente)
+    """
     __tablename__ = "user_consents"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_new_uuid)
     user_id: Mapped[str] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    # type: 'terms' | 'privacy' | 'lgpd' | 'marketing'
-    type: Mapped[str] = mapped_column(String(20), nullable=False)
-    version: Mapped[str] = mapped_column(String(10), nullable=False)
-    accepted_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    # type: 'terms' | 'privacy' | 'lgpd' | 'marketing' | 'cookies_analytics' | 'cookies_marketing'
+    type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(20), nullable=False)
+    accepted_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # SHA-256 hex (64 chars) do texto do termo aceito — prova de imutabilidade
+    text_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 'accepted' | 'revoked' — revogação cria nova linha com este status
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="accepted")
+    # Para consentimentos revogados, aponta para o consent original revogado
+    revokes_consent_id: Mapped[str | None] = mapped_column(
+        ForeignKey("user_consents.id", ondelete="SET NULL"), nullable=True
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "type": self.type,
+            "version": self.version,
+            "accepted_at": self.accepted_at.isoformat() if self.accepted_at else None,
+            "status": self.status,
+            "ip": self.ip,
+            "user_agent": (self.user_agent or "")[:200],
+            "text_hash": self.text_hash,
+            "revokes_consent_id": self.revokes_consent_id,
+        }
 
 
 class SocialAccount(db.Model):

@@ -293,14 +293,20 @@ def register():
         icon="★",
     ))
 
-    # Consents auditáveis (LGPD versionado)
+    # Consents auditáveis (LGPD Art. 8º §5º — versionado, com evidência)
     now = datetime.now(timezone.utc)
     ip = (request.headers.get("X-Forwarded-For", "") or request.remote_addr or "").split(",")[0].strip() or None
+    user_agent = (request.headers.get("User-Agent") or "")[:500] or None
+    # Cliente pode mandar text_hash do termo que viu (proteção contra alegação
+    # de "vi outro texto"). Se não mandar, fica null e o backend assume "última versão".
+    consent_hashes = data.get("consent_text_hashes") or {}
     for consent_type, accepted in [("terms", accept_terms), ("privacy", accept_privacy), ("lgpd", accept_lgpd)]:
         if accepted:
             db.session.add(UserConsent(
                 user_id=user.id, type=consent_type, version="1.0",
-                accepted_at=now, ip=ip,
+                accepted_at=now, ip=ip, user_agent=user_agent,
+                text_hash=consent_hashes.get(consent_type),
+                status="accepted",
             ))
 
     # Cria código de verificação de e-mail (Onda 1 P0)

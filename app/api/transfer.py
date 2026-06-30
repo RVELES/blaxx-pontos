@@ -56,3 +56,29 @@ def send():
         return jsonify({"error": str(exc)}), 400
 
     return jsonify(transfer.to_dict()), 201
+
+
+@bp.post("/<transfer_id>/cancel")
+@login_required
+@limiter.limit("60 per hour", key_func=lambda: g.current_user.id if hasattr(g, "current_user") else "anon")
+def cancel_transfer(transfer_id: str):
+    """POST /transfer/{id}/cancel
+
+    Cancela uma transferência pending dentro da janela de 60s (ToS Seção 9.2).
+
+    Returns:
+      200 + transfer com status=cancelled — se sucesso
+      400 — se já efetivada ou já cancelada
+      404 — se transfer não existe
+      403 — se não é o remetente
+    """
+    try:
+        transfer = transfer_svc.cancel(transfer_id, sender=g.current_user)
+    except transfer_svc.TransferError as exc:
+        msg = str(exc)
+        if "não encontrada" in msg:
+            return jsonify({"error": msg}), 404
+        if "apenas o remetente" in msg:
+            return jsonify({"error": msg}), 403
+        return jsonify({"error": msg}), 400
+    return jsonify(transfer.to_dict()), 200

@@ -51,6 +51,11 @@ _CARD_ID_RE = re.compile(r"^[0-9a-f]{8}$", re.IGNORECASE)
 # idempotency_key (double-tap no botão, retry automático de rede).
 _DUP_WINDOW_SECONDS = 15
 
+# Janela de cancelamento P2P — ToS Seção 9.2 promete 60s.
+# Durante essa janela: pontos ficam em pending_pts do sender, recipient não vê.
+# Após: promote → credit recipient + notify + push.
+P2P_CANCEL_WINDOW_SECONDS = 60
+
 
 def _normalize_cpf(value: str) -> str:
     return _CPF_RE.sub("", value)
@@ -194,56 +199,42 @@ def send(
     if message and len(message) > 140:
         raise TransferError("mensagem com mais de 140 caracteres")
 
+    now = datetime.now(timezone.utc)
     transfer = Transfer(
         sender_id=sender.id,
         recipient_id=recipient.id,
         amount_pts=amount_pts,
         message=message,
         receipt_code=Transfer.make_receipt(),
+        # ToS Seção 9.2 — janela de 60s antes de creditar o destinatário
+        status=Transfer.STATUS_PENDING,
+        committed_at=now + timedelta(seconds=P2P_CANCEL_WINDOW_SECONDS),
     )
     db.session.add(transfer)
     db.session.flush()
 
-    # Chaves de idempotência do ledger: usam a chave do cliente quando houver
-    # (replay exato), senão caem no id da transfer (comportamento anterior).
+    # Chave de idempotência do débito (recipient só credita após promote).
     out_key = _out_key(sender.id, client_key) if client_key else f"transfer-out:{transfer.id}"
-    in_key = _in_key(sender.id, client_key) if client_key else f"transfer-in:{transfer.id}"
 
-    # Débito + crédito atômicos: se algo falhar, rollback derruba os dois
+    # Durante a janela: debita do sender mas SEM creditar o recipient.
+    # O débito SAI do balance_pts e ENTRA no pending_pts (mesmo usuário, segura).
+    # Se cancelar dentro da janela: reversão. Se passar: promote credita o recipient.
     try:
         wallet_svc.debit(
             user_id=sender.id,
             amount_pts=amount_pts,
             tx_type=TxType.TRANSFER_OUT,
-            description=f"Envio para {recipient.name}",
+            description=f"Envio (pending) para {recipient.name}",
             reference=transfer.id,
             idempotency_key=out_key,
         )
-        wallet_svc.credit(
-            user_id=recipient.id,
-            amount_pts=amount_pts,
-            tx_type=TxType.TRANSFER_IN,
-            description=f"Recebido de {sender.name}",
-            reference=transfer.id,
-            idempotency_key=in_key,
-        )
+        # Move o valor debitado pra pending_pts do sender (não some, fica retido)
+        sender_wallet = wallet_svc.get_wallet_for_update(sender.id)
+        sender_wallet.pending_pts = (sender_wallet.pending_pts or 0) + amount_pts
 
-        # (A2) Notifica o destinatário — dentro da mesma transação.
-        db.session.add(Notification(
-            user_id=recipient.id,
-            type="transfer",
-            title="Você recebeu pontos",
-            body=(
-                f"{sender.name} te enviou {amount_pts} pts."
-                + (f' "{message}"' if message else "")
-            ),
-            icon="↪",
-            reference=transfer.id,
-        ))
-
-        # (A3) Auditoria com IP/user-agent (auto) + dispositivo/plataforma.
+        # (A3) Auditoria do envio em estado pending.
         audit_svc.log_event(
-            "transfer_sent",
+            "transfer_pending",
             user_id=sender.id,
             status="ok",
             device_id=device_id,
@@ -254,6 +245,7 @@ def send(
                 "amount_pts": amount_pts,
                 "platform": platform,
                 "idempotent": bool(client_key),
+                "cancel_window_seconds": P2P_CANCEL_WINDOW_SECONDS,
             },
             commit=False,
         )
@@ -275,16 +267,188 @@ def send(
         raise TransferError("transferência duplicada detectada") from exc
 
     db.session.commit()
-    metrics_svc.inc_transfer("success")
-    # Sprint 7 — push pro destinatário (best-effort, console se gates off)
-    try:
-        from . import push as push_svc
-        push_svc.send_to_user(
-            recipient.id,
-            "Você recebeu pontos",
-            f"{sender.name} te enviou {amount_pts} pts.",
-            data={"transfer_id": transfer.id, "receipt": transfer.receipt_code},
-        )
-    except Exception:
-        pass
+    metrics_svc.inc_transfer("pending")
+    # NOTA: push/notification do recipient acontece em promote_pending() — não aqui.
     return transfer
+
+
+# =========================================================================== #
+# Cancelamento e promoção — ToS Seção 9.2                                     #
+# =========================================================================== #
+
+def cancel(transfer_id: str, *, sender: User) -> Transfer:
+    """Cancela uma transfer pending dentro da janela de 60s.
+
+    Reverte: pending_pts → balance_pts do sender. Recipient nunca viu os pontos.
+    Idempotente: chamar duas vezes na mesma transfer cancelada é ok.
+    """
+    transfer = db.session.get(Transfer, transfer_id)
+    if transfer is None:
+        raise TransferError("transferência não encontrada")
+    if transfer.sender_id != sender.id:
+        raise TransferError("apenas o remetente pode cancelar")
+    if transfer.status == Transfer.STATUS_CANCELLED:
+        return transfer  # idempotente
+    if transfer.status == Transfer.STATUS_COMMITTED:
+        raise TransferError(
+            "transferência já efetivada (janela de 60s expirada) — "
+            "se foi erro material, peça a devolução ao destinatário"
+        )
+    if not transfer.is_cancellable:
+        # status='pending' mas committed_at já passou — promove primeiro
+        promote_pending([transfer])
+        raise TransferError(
+            "transferência já efetivada (janela de 60s expirada) — "
+            "se foi erro material, peça a devolução ao destinatário"
+        )
+
+    # Reverte: move pending_pts → balance_pts
+    sender_wallet = wallet_svc.get_wallet_for_update(sender.id)
+    sender_wallet.pending_pts = max(0, (sender_wallet.pending_pts or 0) - transfer.amount_pts)
+    # Re-credita o balance via wallet_svc (cria Transaction de reversão para audit trail)
+    wallet_svc.credit(
+        user_id=sender.id,
+        amount_pts=transfer.amount_pts,
+        tx_type=TxType.TRANSFER_IN,  # reuso o tipo de crédito (técnica de estorno)
+        description=f"Reversão de envio cancelado #{transfer.receipt_code}",
+        reference=transfer.id,
+        idempotency_key=f"transfer-cancel:{transfer.id}",
+    )
+
+    transfer.status = Transfer.STATUS_CANCELLED
+    transfer.cancelled_at = datetime.now(timezone.utc)
+
+    audit_svc.log_event(
+        "transfer_cancelled",
+        user_id=sender.id,
+        status="ok",
+        extra={
+            "transfer_id": transfer.id,
+            "receipt_code": transfer.receipt_code,
+            "amount_pts": transfer.amount_pts,
+        },
+        commit=False,
+    )
+
+    db.session.commit()
+    metrics_svc.inc_transfer("cancelled")
+    return transfer
+
+
+def promote_pending(transfers: list[Transfer] | None = None) -> int:
+    """Promove transfers pending cujo committed_at já passou.
+
+    Chamado lazy nos endpoints de leitura (GET /wallet/, /transactions, etc).
+    Pode ser chamado com uma lista específica (acelera caso conhecido) ou
+    sem argumento (varre todas as pending vencidas — usado por cron opcional).
+
+    Retorna número de transfers promovidas.
+    """
+    now = datetime.now(timezone.utc)
+
+    if transfers is None:
+        transfers = (
+            db.session.query(Transfer)
+            .filter(
+                Transfer.status == Transfer.STATUS_PENDING,
+                Transfer.committed_at <= now,
+            )
+            .all()
+        )
+    else:
+        # Filtra só as que realmente venceram
+        transfers = [t for t in transfers if t.is_pending and not t.is_cancellable]
+
+    promoted = 0
+    for t in transfers:
+        try:
+            # Move pending_pts → fora (já saiu do sender, vai pro recipient)
+            sender_wallet = wallet_svc.get_wallet_for_update(t.sender_id)
+            sender_wallet.pending_pts = max(
+                0, (sender_wallet.pending_pts or 0) - t.amount_pts
+            )
+
+            # Credita o recipient (agora visível)
+            wallet_svc.credit(
+                user_id=t.recipient_id,
+                amount_pts=t.amount_pts,
+                tx_type=TxType.TRANSFER_IN,
+                description=f"Recebido (cód. {t.receipt_code})",
+                reference=t.id,
+                idempotency_key=_in_key(t.sender_id, f"promote:{t.id}"),
+            )
+
+            # Notifica recipient — agora pode
+            recipient = db.session.get(User, t.recipient_id)
+            sender = db.session.get(User, t.sender_id)
+            if recipient and sender:
+                db.session.add(Notification(
+                    user_id=t.recipient_id,
+                    type="transfer",
+                    title="Você recebeu pontos",
+                    body=(
+                        f"{sender.name} te enviou {t.amount_pts} pts."
+                        + (f' "{t.message}"' if t.message else "")
+                    ),
+                    icon="↪",
+                    reference=t.id,
+                ))
+
+            t.status = Transfer.STATUS_COMMITTED
+            audit_svc.log_event(
+                "transfer_committed",
+                user_id=t.sender_id,
+                status="ok",
+                extra={
+                    "transfer_id": t.id,
+                    "receipt_code": t.receipt_code,
+                    "recipient_id": t.recipient_id,
+                    "amount_pts": t.amount_pts,
+                },
+                commit=False,
+            )
+            promoted += 1
+
+            # Push best-effort
+            try:
+                from . import push as push_svc
+                push_svc.send_to_user(
+                    t.recipient_id,
+                    "Você recebeu pontos",
+                    f"{sender.name if sender else 'Alguém'} te enviou {t.amount_pts} pts.",
+                    data={"transfer_id": t.id, "receipt": t.receipt_code},
+                )
+            except Exception:
+                pass
+
+        except Exception:
+            # Não deixa uma transfer ruim quebrar as outras — log e segue.
+            from flask import current_app
+            current_app.logger.exception(
+                "promote_pending: falha ao promover transfer %s", t.id
+            )
+            continue
+
+    if promoted:
+        db.session.commit()
+        for _ in range(promoted):
+            metrics_svc.inc_transfer("committed")
+
+    return promoted
+
+
+def promote_pending_for_user(user_id: str) -> int:
+    """Conveniência: promove transfers pending do user (sender OU recipient)
+    cujo committed_at já passou. Chamado por /wallet, /transactions.
+    """
+    now = datetime.now(timezone.utc)
+    pending = (
+        db.session.query(Transfer)
+        .filter(
+            Transfer.status == Transfer.STATUS_PENDING,
+            Transfer.committed_at <= now,
+            (Transfer.sender_id == user_id) | (Transfer.recipient_id == user_id),
+        )
+        .all()
+    )
+    return promote_pending(pending) if pending else 0

@@ -396,6 +396,7 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
     from .api.admin import bp as admin_bp
     from .api.security import bp as security_bp, register_login_2fa_route
     from .api.push import bp as push_bp
+    from .api.privacy import bp as privacy_bp
 
     # Onda 3 — registra /auth/login/2fa NO blueprint auth_bp existente
     # (mantém prefix /auth/* coerente, sem precisar criar segundo blueprint).
@@ -413,6 +414,7 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
     app.register_blueprint(campaigns_bp, url_prefix="/campaigns")
     app.register_blueprint(notifications_bp, url_prefix="/notifications")
     app.register_blueprint(push_bp, url_prefix="/push")
+    app.register_blueprint(privacy_bp, url_prefix="/privacy")
     app.register_blueprint(admin_bp, url_prefix="/admin")
     # Onda 3 — telefone + 2FA SMS + sessões + access-log
     app.register_blueprint(security_bp, url_prefix="/user")
