@@ -10,6 +10,7 @@ durante a transição: aceita ambos os formatos no helper `_bearer_user`.
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -873,7 +874,11 @@ def send_verification_code():
     except Exception as e:
         current_app.logger.warning("Falha ao reenviar: %s", e)
 
-    return jsonify({"ok": True, "expires_in_min": 10})
+    resp = {"ok": True, "expires_in_min": 10}
+    # Em homologação (MAILER != resend) devolve o código na resposta
+    if os.environ.get("MAILER", "console").lower().strip() != "resend":
+        resp["_dev_code"] = code
+    return jsonify(resp)
 
 
 @bp.post("/verify-email")
@@ -925,6 +930,37 @@ def verify_email():
         user_id=user.id, type="system",
         title="E-mail verificado",
         body="Sua conta está liberada para todas as operações financeiras.",
+        icon="✓",
+    ))
+    db.session.commit()
+    return jsonify({"ok": True, "verified_at": user.email_verified_at.isoformat()})
+
+
+# =====================================================================
+# Dev-only: auto-verificar e-mail (homologação / MAILER != resend)
+# =====================================================================
+
+@bp.post("/dev/verify-email")
+@login_required
+def dev_auto_verify():
+    """Auto-verifica o e-mail da conta logada (homologação).
+
+    Só funciona quando MAILER != resend (ou seja, ambiente de dev/homolog).
+    Em produção (resend) retorna 403 para não ser explorado.
+    """
+    mailer = os.environ.get("MAILER", "console").lower().strip()
+    if mailer == "resend":
+        return jsonify({"error": "Indisponível em produção."}), 403
+
+    user = g.current_user
+    if user.is_email_verified:
+        return jsonify({"ok": True, "already_verified": True})
+
+    user.email_verified_at = datetime.now(timezone.utc)
+    db.session.add(Notification(
+        user_id=user.id, type="system",
+        title="E-mail verificado",
+        body="Verificação automática (homologação).",
         icon="✓",
     ))
     db.session.commit()

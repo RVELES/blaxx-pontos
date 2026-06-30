@@ -43,6 +43,7 @@ class TransferError(Exception):
 
 
 _CPF_RE = re.compile(r"\D+")
+_CARD_ID_RE = re.compile(r"^[0-9a-f]{8}$", re.IGNORECASE)
 
 # Janela curta p/ deduplicar reenvios acidentais quando o cliente NÃO mandou
 # idempotency_key (double-tap no botão, retry automático de rede).
@@ -54,14 +55,21 @@ def _normalize_cpf(value: str) -> str:
 
 
 def find_recipient(identifier: str) -> User | None:
-    """Aceita e-mail OU CPF (com ou sem máscara)."""
+    """Aceita e-mail, CPF (com ou sem máscara) ou Cartão BlaXx (8 hex)."""
     identifier = (identifier or "").strip().lower()
     if "@" in identifier:
         return db.session.query(User).filter_by(email=identifier).one_or_none()
     cpf = _normalize_cpf(identifier)
-    if not cpf:
-        return None
-    return db.session.query(User).filter_by(cpf=cpf).one_or_none()
+    if cpf:
+        user = db.session.query(User).filter_by(cpf=cpf).one_or_none()
+        if user:
+            return user
+    card_id = re.sub(r"[\s\-]", "", identifier)
+    if _CARD_ID_RE.match(card_id):
+        return db.session.query(User).filter(
+            User.id.like(f"{card_id}%")
+        ).one_or_none()
+    return None
 
 
 def _out_key(sender_id: str, client_key: str) -> str:
