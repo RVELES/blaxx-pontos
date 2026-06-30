@@ -10,7 +10,6 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Cancela runs em curso quando um novo push entra (economiza minutos).
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -21,19 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: requirements.txt
-
       - name: Install deps
         run: pip install -r requirements.txt
-
       - name: Run pytest
-        # Os testes do projeto sobem a app inteira via fixtures (conftest.py);
-        # exigimos as mesmas envs mínimas que o boot real exige em prod.
         env:
           SECRET_KEY: ci-only-secret-32chars-min-not-real
           JWT_SECRET_KEY: ci-only-secret-32chars-min-not-real
@@ -46,41 +40,26 @@ jobs:
     name: boot ${{ matrix.case }}
     runs-on: ubuntu-latest
     strategy:
-      # fail-fast: false → vejo TODOS os cenários quebrados de uma vez
       fail-fast: false
       matrix:
         include:
-          # Cenário Render real de ontem: env existe mas com placeholder
-          # inválido (causou BadDsn). Boot test prova que app sobe sem morrer.
-          - case: 'no-sentry-dsn'
-            sentry_dsn: ''
-          - case: 'empty-sentry-dsn'
-            sentry_dsn: ' '
-          - case: 'placeholder-https'
-            sentry_dsn: 'https://'
-          - case: 'placeholder-text'
-            sentry_dsn: '<your-dsn-here>'
-          - case: 'malformed-no-at'
-            sentry_dsn: 'https://ingest.sentry.io/123'
-          - case: 'wrong-scheme'
-            sentry_dsn: 'ftp://key@host/1'
-          - case: 'random-junk'
-            sentry_dsn: 'foobar'
+          - { case: 'no-sentry-dsn',    sentry_dsn: '',                              expect: 'success' }
+          - { case: 'empty-sentry-dsn', sentry_dsn: ' ',                             expect: 'success' }
+          - { case: 'placeholder-https', sentry_dsn: 'https://',                     expect: 'envfail' }
+          - { case: 'placeholder-text',  sentry_dsn: '<your-dsn-here>',              expect: 'envfail' }
+          - { case: 'malformed-no-at',   sentry_dsn: 'https://ingest.sentry.io/123', expect: 'envfail' }
+          - { case: 'wrong-scheme',      sentry_dsn: 'ftp://key@host/1',             expect: 'envfail' }
+          - { case: 'random-junk',       sentry_dsn: 'foobar',                       expect: 'envfail' }
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: requirements.txt
-
       - name: Install deps
         run: pip install -r requirements.txt
-
       - name: Boot test
-        # `python -c create_app()` simula o mesmo caminho de boot do gunicorn
-        # em produção. Se quebrar, o exit code != 0 reprova o job.
         env:
           SECRET_KEY: ci-only-secret-32chars-min-not-real
           JWT_SECRET_KEY: ci-only-secret-32chars-min-not-real
@@ -90,24 +69,36 @@ jobs:
           SENTRY_DSN: ${{ matrix.sentry_dsn }}
           PIX_PROVIDER: mock
           SMS_BACKEND: console
+          EXPECT: ${{ matrix.expect }}
         run: |
           python -c "
-          from app import create_app
-          app = create_app()
-          # Sanity: rotas críticas estão registradas? (regression contra deploy
-          # de ontem que tinha código novo mas reinício de processo silencioso)
-          rules = {str(r) for r in app.url_map.iter_rules()}
-          required = {'/health', '/readyz', '/auth/login', '/auth/me',
-                      '/auth/logout', '/auth/refresh',
-                      '/push/subscribe', '/push/unsubscribe',
-                      '/redeem/', '/transfer/'}
-          missing = required - rules
-          if missing:
-              raise SystemExit(f'rotas faltando: {sorted(missing)}')
-          print(f'OK · {len(rules)} rotas · DSN scenario: \"${{ matrix.sentry_dsn }}\"')
+          import os
+          expect = os.environ['EXPECT']
+          try:
+              from app import create_app
+              app = create_app()
+              if expect == 'envfail':
+                  raise SystemExit('FALHA: env_schema deveria ter rejeitado SENTRY_DSN inválido')
+              rules = {str(r) for r in app.url_map.iter_rules()}
+              required = {'/health', '/readyz', '/auth/login', '/auth/me',
+                          '/auth/logout', '/auth/refresh',
+                          '/push/subscribe', '/push/unsubscribe',
+                          '/redeem/', '/transfer/'}
+              missing = required - rules
+              if missing:
+                  raise SystemExit(f'rotas faltando: {sorted(missing)}')
+              print(f'OK (success) - {len(rules)} rotas')
+          except SystemExit:
+              raise
+          except Exception as exc:
+              if expect != 'envfail':
+                  raise
+              msg = str(exc)
+              if 'SENTRY_DSN' not in msg and 'Env' not in msg:
+                  raise SystemExit(f'FALHA: erro nao menciona SENTRY_DSN/Env: {msg[:200]}')
+              print(f'OK (envfail) - recusou boot: {type(exc).__name__}')
           "
 
-  # Gate de merge: precisa de pytest + TODOS os boot scenarios verdes
   all-green:
     name: All checks green
     runs-on: ubuntu-latest
@@ -120,4 +111,4 @@ jobs:
             echo "::error::Algum job falhou — bloqueando merge"
             exit 1
           fi
-          echo "✓ Todos os checks verdes"
+          echo "Todos os checks verdes"
