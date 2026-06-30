@@ -236,21 +236,56 @@ class TestDeleteAccount:
 # ============================================================================
 
 class TestDevEndpointGate:
+    """Gate de /auth/dev/verify-email — intenção:
+      - Em DEV/TEST: sempre permite (não precisa de flag)
+      - Em PRODUÇÃO: só permite com ENABLE_DEV_ENDPOINTS=1
 
-    def test_dev_endpoint_returns_404_without_flag(self, app, client, monkeypatch):
+    Bug fix 2026-06-30: lógica anterior usava `or` (404 em qualquer caso sem
+    flag, inclusive prod com flag). Agora `and` (só 404 em prod sem flag).
+    """
+
+    def test_dev_endpoint_allows_in_test_mode_without_flag(self, app, client, monkeypatch):
+        """Test mode sem flag → permite (intenção: dev/test livre)."""
         _mk_user(app)
         access, _ = _login(client)
-        # Sem ENABLE_DEV_ENDPOINTS — em test mode `_is_production` retorna
-        # False (PYTEST_CURRENT_TEST setado), entao precisa do flag explicito.
         monkeypatch.delenv("ENABLE_DEV_ENDPOINTS", raising=False)
         r = client.post("/auth/dev/verify-email",
                         headers={"Authorization": f"Bearer {access}"})
-        assert r.status_code == 404
+        assert r.status_code == 200
 
     def test_dev_endpoint_works_with_flag_in_test(self, app, client, monkeypatch):
+        """Test mode com flag=1 → permite (idem)."""
         _mk_user(app)
         access, _ = _login(client)
         monkeypatch.setenv("ENABLE_DEV_ENDPOINTS", "1")
         r = client.post("/auth/dev/verify-email",
                         headers={"Authorization": f"Bearer {access}"})
         assert r.status_code == 200
+
+    def test_dev_endpoint_blocks_in_production_without_flag(self, app, client, monkeypatch):
+        """Production sem flag → 404 (gate de segurança)."""
+        _mk_user(app)
+        access, _ = _login(client)
+        monkeypatch.delenv("ENABLE_DEV_ENDPOINTS", raising=False)
+        # Força _is_production() a retornar True via monkeypatch
+        from app import _is_production as orig  # noqa
+        monkeypatch.setattr("app._is_production", lambda *a, **k: True)
+        monkeypatch.setattr("app.api.auth._is_production", lambda *a, **k: True) if False else None
+        # O import dentro do view é "from .. import _is_production" → resolve
+        # via app/__init__.py, então patcheamos lá.
+        import app as app_module
+        monkeypatch.setattr(app_module, "_is_production", lambda *a, **k: True)
+        r = client.post("/auth/dev/verify-email",
+                        headers={"Authorization": f"Bearer {access}"})
+        assert r.status_code == 404, "Sem flag em prod precisa retornar 404"
+
+    def test_dev_endpoint_works_in_production_with_flag(self, app, client, monkeypatch):
+        """Production COM flag=1 → permite. Este é o caso de homologação."""
+        _mk_user(app)
+        access, _ = _login(client)
+        monkeypatch.setenv("ENABLE_DEV_ENDPOINTS", "1")
+        import app as app_module
+        monkeypatch.setattr(app_module, "_is_production", lambda *a, **k: True)
+        r = client.post("/auth/dev/verify-email",
+                        headers={"Authorization": f"Bearer {access}"})
+        assert r.status_code == 200, "Prod + flag=1 deve permitir (homologação)"

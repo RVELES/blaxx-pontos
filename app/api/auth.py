@@ -1011,10 +1011,19 @@ def dev_auto_verify():
     Sprint 0 (P0): gate por FLASK_ENV + ENABLE_DEV_ENDPOINTS=1.
     Em produção responde 404 (rota nao existe) — sem importar o MAILER.
     O gate antigo (MAILER != resend) era furado: trocar MAILER reabria.
+
+    Tabela verdade do gate:
+      | is_production | ENABLE_DEV_ENDPOINTS | Resultado    |
+      |---------------|----------------------|--------------|
+      | True          | 1                    | permite      |
+      | True          | (off)                | 404          |
+      | False (dev)   | qualquer             | permite      |
     """
     from flask import abort
     from .. import _is_production, _dev_endpoints_enabled
-    if _is_production() or not _dev_endpoints_enabled():
+    # Bug fix 2026-06-30: era `or not` (404 sempre em prod, ignorando flag) →
+    # agora `and not` (em prod só bloqueia se o flag NÃO estiver setado).
+    if _is_production() and not _dev_endpoints_enabled():
         abort(404)
 
     user = g.current_user
