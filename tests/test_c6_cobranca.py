@@ -315,6 +315,39 @@ class TestCertMaterial:
         with pytest.raises(C6Error):
             resolve_cert_paths(cert_path="/nao/existe.crt", key_path="/nao/existe.key")
 
+    @pytest.mark.parametrize("mangle,desc", [
+        (lambda p: p, "original"),
+        (lambda p: p.replace("\n", "\\n"), "\\n literal"),
+        (lambda p: p.replace("\n", "\r\n"), "CRLF do Windows"),
+        (lambda p: " ".join(p.split()), "achatado numa linha só"),
+        (lambda p: '"' + p + '"', "com aspas em volta"),
+        (lambda p: "\n".join("  " + l for l in p.splitlines()), "indentado"),
+        (lambda p: '"' + " ".join(p.split()) + '"', "achatado com aspas"),
+    ])
+    def test_pem_sobrevive_a_qualquer_colagem(self, mangle, desc):
+        """Regressão do deploy de 17/09: o PEM colado num campo de linha única
+        chegou com espaço no lugar das quebras e o boot morreu em
+        `[SSL] PEM lib`, erro que não diz a causa. O normalizador reconstrói o
+        bloco em vez de confiar no formato."""
+        from app.pix.c6 import _normalize_pem
+
+        pem = ("-----BEGIN CERTIFICATE-----\n"
+               + "\n".join(["QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2" for _ in range(4)])
+               + "\n-----END CERTIFICATE-----\n")
+        saida = _normalize_pem(mangle(pem))
+        assert saida.startswith("-----BEGIN CERTIFICATE-----\n"), desc
+        assert saida.endswith("-----END CERTIFICATE-----\n"), desc
+        corpo = saida.split("-----")[2].strip().splitlines()
+        assert all(len(l) <= 64 for l in corpo), desc
+        assert "".join(corpo) == "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xtbm9wcXJzdHV2" * 4, desc
+
+    def test_pem_preserva_cadeia_com_varios_blocos(self):
+        from app.pix.c6 import _normalize_pem
+
+        dois = ("-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----\n"
+                "-----BEGIN CERTIFICATE-----\nREVG\n-----END CERTIFICATE-----\n")
+        assert _normalize_pem(" ".join(dois.split())).count("BEGIN CERTIFICATE") == 2
+
 
 # ───────────────────── webhook HTTP → ledger ───────────────────── #
 

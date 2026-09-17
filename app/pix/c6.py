@@ -123,11 +123,42 @@ def resolve_cert_paths(
 
 
 def _normalize_pem(value: str) -> str:
-    # Env vars às vezes chegam com "\n" literal em vez de quebra de linha.
+    """Devolve um PEM válido a partir do que quer que o painel tenha guardado.
+
+    Um PEM colado num dashboard chega estragado de várias formas, e todas dão
+    o mesmo erro opaco (`[SSL] PEM lib`) lá na frente, no load_cert_chain:
+    campo de linha única transforma as quebras em espaço, alguns painéis
+    envolvem o valor em aspas, outros indentam, e o shell costuma entregar
+    "\\n" literal. Reconstruir aqui custa nada e evita um deploy quebrado com
+    mensagem que não explica a causa.
+    """
     v = (value or "").strip()
-    if "\\n" in v and "\n" not in v:
-        v = v.replace("\\n", "\n")
-    return v + ("\n" if v and not v.endswith("\n") else "")
+    if not v:
+        return ""
+    # Aspas que o painel (ou o shell) colocou em volta do valor inteiro.
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        v = v[1:-1].strip()
+    v = v.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+
+    # Reconstrói cada bloco: cabeçalho, corpo base64 em linhas de 64, rodapé.
+    # Serve tanto para o PEM achatado quanto para o indentado, e preserva
+    # cadeias com mais de um bloco (certificado + intermediários).
+    blocos = re.findall(
+        r"-----BEGIN ([A-Z0-9 ]+)-----(.*?)-----END \1-----", v, re.S
+    )
+    if not blocos:
+        # Sem marcadores não há o que reconstruir: devolve como veio e deixa
+        # o OpenSSL recusar, com o arquivo intacto para inspeção.
+        return v if v.endswith("\n") else v + "\n"
+
+    saida = []
+    for rotulo, corpo in blocos:
+        b64 = "".join(corpo.split())
+        linhas = [b64[i:i + 64] for i in range(0, len(b64), 64)]
+        saida.append(
+            f"-----BEGIN {rotulo}-----\n" + "\n".join(linhas) + f"\n-----END {rotulo}-----\n"
+        )
+    return "".join(saida)
 
 
 def _pem_to_tempfile(pem: str, suffix: str) -> str:
