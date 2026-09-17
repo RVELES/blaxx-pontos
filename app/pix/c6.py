@@ -119,7 +119,108 @@ def resolve_cert_paths(
             "C6: informe C6_CERT_PATH+C6_KEY_PATH ou C6_CERT_PEM+C6_KEY_PEM "
             "(mTLS é obrigatório na API do C6)."
         )
+    # Diagnóstico ANTES do load_cert_chain: ele responde só "[SSL] PEM lib",
+    # que não distingue material trocado de truncado ou corrompido, e cada
+    # tentativa custa um deploy inteiro.
+    _diagnosticar_pem("C6_CERT_PEM", cert_pem, esperado="CERTIFICATE")
+    _diagnosticar_pem("C6_KEY_PEM", key_pem, esperado="PRIVATE KEY")
+    log.info("C6 certificado: %s", conferir_par(cert_pem, key_pem))
     return _pem_to_tempfile(cert_pem, ".crt"), _pem_to_tempfile(key_pem, ".key")
+
+
+def _diagnosticar_pem(var: str, pem: str, *, esperado: str) -> None:
+    """Recusa material inválido com a causa dita por extenso.
+
+    Nunca revela o conteúdo: só o rótulo do bloco, o tamanho e a posição do
+    problema, que é o suficiente para corrigir a variável no painel.
+    """
+    blocos = re.findall(r"-----BEGIN ([A-Z0-9 ]+)-----(.*?)-----END \1-----", pem, re.S)
+    if not blocos:
+        inicio = pem.lstrip()[:40].replace("\n", "⏎")
+        raise C6Error(
+            f"{var}: não achei um bloco PEM completo (recebi {len(pem)} caracteres, "
+            f"começando com {inicio!r}). Cole o arquivo INTEIRO, com as linhas "
+            f"-----BEGIN {esperado}----- e -----END {esperado}-----."
+        )
+
+    rotulos = [r for r, _ in blocos]
+    tem_chave = any("PRIVATE KEY" in r for r in rotulos)
+    tem_cert = any("CERTIFICATE" in r for r in rotulos)
+
+    # Troca de variáveis é o engano mais comum e o mais difícil de enxergar.
+    if esperado == "CERTIFICATE" and tem_chave and not tem_cert:
+        raise C6Error(
+            f"{var} contém uma CHAVE PRIVADA ({rotulos[0]}), não um certificado. "
+            "Parece que C6_CERT_PEM e C6_KEY_PEM foram trocadas: o .crt vai em "
+            "C6_CERT_PEM e o .key em C6_KEY_PEM."
+        )
+    if esperado == "PRIVATE KEY" and tem_cert and not tem_chave:
+        raise C6Error(
+            f"{var} contém um CERTIFICADO, não uma chave privada. Parece que "
+            "C6_CERT_PEM e C6_KEY_PEM foram trocadas."
+        )
+    if esperado == "PRIVATE KEY" and "ENCRYPTED" in " ".join(rotulos):
+        raise C6Error(
+            f"{var} é uma chave protegida por senha ({rotulos[0]}); o C6 emite "
+            "chave sem senha. Use o .key original, ou remova a senha com "
+            "`openssl rsa -in chave.key -out chave-sem-senha.key`."
+        )
+
+    for rotulo, corpo in blocos:
+        b64 = "".join(corpo.split())
+        if not b64:
+            raise C6Error(f"{var}: bloco {rotulo} está vazio entre BEGIN e END.")
+        try:
+            import base64
+
+            base64.b64decode(b64, validate=True)
+        except Exception as exc:  # noqa: BLE001
+            raise C6Error(
+                f"{var}: o corpo do bloco {rotulo} não é base64 válido "
+                f"({len(b64)} caracteres). O valor provavelmente foi cortado ao "
+                f"colar, ou veio com caracteres invisíveis. Detalhe: {exc}"
+            ) from exc
+
+    log.info(
+        "%s: %d bloco(s) %s, %d caracteres, formato válido",
+        var, len(blocos), "+".join(rotulos), len(pem),
+    )
+
+
+def conferir_par(cert_pem: str, key_pem: str) -> str:
+    """Confirma que a chave é a do certificado, e devolve um resumo do par.
+
+    `load_cert_chain` só diz "[SSL] PEM lib" quando algo está errado. Aqui o
+    material é parseado de verdade, então o log do boot mostra validade,
+    titular e se a chave casa, sem expor nada sigiloso.
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.x509 import load_pem_x509_certificate
+
+    try:
+        cert = load_pem_x509_certificate(cert_pem.encode())
+    except Exception as exc:  # noqa: BLE001
+        raise C6Error(f"C6_CERT_PEM: certificado ilegível ({exc}).") from exc
+    try:
+        chave = serialization.load_pem_private_key(key_pem.encode(), password=None)
+    except TypeError as exc:
+        raise C6Error("C6_KEY_PEM: a chave exige senha; o C6 emite chave sem senha.") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise C6Error(f"C6_KEY_PEM: chave privada ilegível ({exc}).") from exc
+
+    pub_cert = cert.public_key().public_bytes(
+        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    pub_key = chave.public_key().public_bytes(
+        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    if pub_cert != pub_key:
+        raise C6Error(
+            "C6_CERT_PEM e C6_KEY_PEM não são o mesmo par: a chave pública do "
+            "certificado não bate com a chave privada. Confira se as duas vieram "
+            "do mesmo e-mail do C6."
+        )
+
+    cn = cert.subject.rfc4514_string()
+    return f"titular={cn} · válido até {cert.not_valid_after_utc:%d/%m/%Y}"
 
 
 def _normalize_pem(value: str) -> str:

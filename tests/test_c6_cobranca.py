@@ -296,18 +296,89 @@ class TestQueries:
 
 # ───────────────────── certificado ───────────────────── #
 
+def _gerar_par() -> tuple[str, str]:
+    """Par autoassinado descartável: o teste exercita o caminho real do SSL."""
+    from datetime import timedelta
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    chave = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    nome = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "blaxx-teste")])
+    agora = datetime.now(timezone.utc)
+    cert = (x509.CertificateBuilder()
+            .subject_name(nome).issuer_name(nome)
+            .public_key(chave.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(agora - timedelta(days=1))
+            .not_valid_after(agora + timedelta(days=365))
+            .sign(chave, hashes.SHA256()))
+    return (
+        cert.public_bytes(serialization.Encoding.PEM).decode(),
+        chave.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption()).decode(),
+    )
+
+
+@pytest.fixture(scope="module")
+def par_pem():
+    return _gerar_par()
+
+
+@pytest.fixture(scope="module")
+def outro_par_pem():
+    return _gerar_par()
+
+
 class TestCertMaterial:
-    def test_pem_inline_becomes_private_tempfiles(self):
-        cert, key = resolve_cert_paths(
-            cert_pem="-----BEGIN CERTIFICATE-----\\nabc\\n-----END CERTIFICATE-----",
-            key_pem="-----BEGIN RSA PRIVATE KEY-----\ndef\n-----END RSA PRIVATE KEY-----",
-        )
+    def test_pem_inline_becomes_private_tempfiles(self, par_pem):
+        cert_pem, key_pem = par_pem
+        cert, key = resolve_cert_paths(cert_pem=cert_pem, key_pem=key_pem)
         try:
-            assert open(cert).read() == "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----\n"
+            assert "BEGIN CERTIFICATE" in open(cert).read()
+            # A chave nunca pode ficar legível para outros processos do host.
             assert stat.S_IMODE(os.stat(key).st_mode) == 0o600
+            # E o par tem que carregar de verdade no contexto TLS.
+            import ssl as _ssl
+            _ssl.create_default_context().load_cert_chain(certfile=cert, keyfile=key)
         finally:
             os.unlink(cert)
             os.unlink(key)
+
+    def test_pem_achatado_ainda_carrega_no_ssl(self, par_pem):
+        """O caso que derrubou o deploy: colado em campo de linha única."""
+        cert_pem, key_pem = par_pem
+        cert, key = resolve_cert_paths(
+            cert_pem=" ".join(cert_pem.split()), key_pem=" ".join(key_pem.split()))
+        try:
+            import ssl as _ssl
+            _ssl.create_default_context().load_cert_chain(certfile=cert, keyfile=key)
+        finally:
+            os.unlink(cert)
+            os.unlink(key)
+
+    def test_variaveis_trocadas_dizem_que_estao_trocadas(self, par_pem):
+        cert_pem, key_pem = par_pem
+        with pytest.raises(C6Error) as exc:
+            resolve_cert_paths(cert_pem=key_pem, key_pem=cert_pem)
+        assert "trocadas" in str(exc.value)
+
+    def test_par_que_nao_casa_e_recusado(self, par_pem, outro_par_pem):
+        cert_pem, _ = par_pem
+        _, key_de_outro = outro_par_pem
+        with pytest.raises(C6Error) as exc:
+            resolve_cert_paths(cert_pem=cert_pem, key_pem=key_de_outro)
+        assert "não são o mesmo par" in str(exc.value)
+
+    def test_material_cortado_ao_colar_e_recusado(self, par_pem):
+        cert_pem, key_pem = par_pem
+        with pytest.raises(C6Error) as exc:
+            resolve_cert_paths(cert_pem=cert_pem[:len(cert_pem) // 2], key_pem=key_pem)
+        assert "bloco PEM completo" in str(exc.value)
 
     def test_missing_material_is_explicit(self):
         with pytest.raises(C6Error):
