@@ -238,6 +238,20 @@ def create_charge(
         # descarta a charge pendente e devolve erro amigável (HTTP 400).
         db.session.rollback()
         raise PixError(str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        # Provider fora do ar é ROTINA, não exceção: o sandbox do C6 só
+        # atende seg a sex das 7h às 22h, e qualquer 5xx cairia aqui. Sem
+        # este tratamento o cliente recebe o 500 HTML do Werkzeug e o Sentry
+        # ganha um evento por tentativa de compra.
+        db.session.rollback()
+        nome = _provider().name
+        current_app.logger.error(
+            "PIX provider %s indisponível ao criar cobrança: %s", nome, exc
+        )
+        metrics_svc.inc_purchase("provider_error", nome)
+        raise PixError(
+            "Não foi possível gerar a cobrança PIX agora. Tente de novo em alguns minutos."
+        ) from exc
     charge.br_code = resp.br_code
     charge.qr_code_image = resp.qr_code_image or None
     db.session.commit()
@@ -282,9 +296,11 @@ def confirm_payment(txid: str, *, provider_confirmed: bool = False) -> PixCharge
             "provider — creditando mesmo assim", charge.id,
         )
 
-    charge.status = PixChargeStatus.PAID
-    charge.paid_at = datetime.now(timezone.utc)
-
+    # O crédito vem ANTES de marcar PAID: se `credit` levantar (carteira
+    # ausente, erro de DB), a sessão nunca chega a carregar uma charge PAID
+    # sem lançamento no ledger. Um commit posterior de outro handler no mesmo
+    # request persistiria esse estado, e o retry morreria no early-return de
+    # `status == PAID` acima — cliente paga e nunca recebe.
     wallet_svc.credit(
         user_id=charge.user_id,
         amount_pts=charge.points_to_credit,
@@ -293,6 +309,8 @@ def confirm_payment(txid: str, *, provider_confirmed: bool = False) -> PixCharge
         reference=charge.id,
         idempotency_key=f"charge:{charge.id}",  # blinda contra webhook duplicado
     )
+    charge.status = PixChargeStatus.PAID
+    charge.paid_at = datetime.now(timezone.utc)
     db.session.commit()
     metrics_svc.inc_purchase("paid", _provider().name)
     # Sprint 7 — push pro user confirmando crédito

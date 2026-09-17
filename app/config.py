@@ -266,6 +266,25 @@ class Config:
     # handler também reconsulta a API antes de mexer no ledger.
     ASAAS_WEBHOOK_TOKEN = os.environ.get("ASAAS_WEBHOOK_TOKEN", "").strip()
 
+    # ---- C6 Bank: PIX de ENTRADA (cobrança) ---- #
+    # API Pix padrão Bacen, OAuth2 client_credentials + mTLS. Só cobrança:
+    # com PIX_PROVIDER=c6 o resgate fica em PAYOUT_MODE manual.
+    C6_CLIENT_ID = os.environ.get("C6_CLIENT_ID", "").strip()
+    C6_CLIENT_SECRET = os.environ.get("C6_CLIENT_SECRET", "").strip()
+    # Chave DICT da conta C6 que recebe as compras.
+    C6_PIX_KEY = os.environ.get("C6_PIX_KEY", "").strip()
+    # "sandbox" (default, seguro) | "production"
+    C6_ENV = os.environ.get("C6_ENV", "sandbox").strip().lower()
+    # Certificado de cliente (mTLS): caminhos de arquivo OU conteúdo PEM
+    # inline (é assim que o Render guarda segredo multilinha).
+    C6_CERT_PATH = os.environ.get("C6_CERT_PATH", "").strip()
+    C6_KEY_PATH = os.environ.get("C6_KEY_PATH", "").strip()
+    C6_CERT_PEM = os.environ.get("C6_CERT_PEM", "")
+    C6_KEY_PEM = os.environ.get("C6_KEY_PEM", "")
+    # Segredo no caminho da URL do webhook (/payments/c6/webhook/<token>).
+    # O handler também reconsulta a API antes de creditar.
+    C6_WEBHOOK_TOKEN = os.environ.get("C6_WEBHOOK_TOKEN", "").strip()
+
     # ---- Stripe: cartão INTERNACIONAL ---- #
     # Stripe não faz PIX no Brasil (invite-only + 60 dias de histórico) nem
     # paga PIX a terceiros — entra só para cartão internacional.

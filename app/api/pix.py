@@ -74,8 +74,43 @@ def get_charge(charge_id: str):
     charge = db.session.get(PixCharge, charge_id)
     if charge is None or charge.user_id != g.current_user.id:
         return jsonify({"error": "not found"}), 404
+    _reconsultar_c6_se_pendente(charge)
     purchase_svc.expire_if_needed(charge)
     return jsonify(charge.to_dict())
+
+
+def _reconsultar_c6_se_pendente(charge) -> None:
+    """Backstop do webhook do C6: confirma pelo polling que o frontend já faz.
+
+    O webhook é a via normal, mas ele pode se perder (C6 fora do ar na hora
+    da entrega, sandbox fechado, hiccup de rede). Sem isto o dinheiro entra,
+    a charge expira sozinha e nada reconsulta. Aqui a consulta sai de graça:
+    a tela de pagamento já faz polling neste endpoint.
+
+    Nunca propaga erro: falha de consulta não pode quebrar a tela.
+    """
+    from ..models import PixChargeStatus
+
+    provider = current_app.extensions.get("pix_provider")
+    if getattr(provider, "name", "") != "c6":
+        return
+    if charge.status not in (PixChargeStatus.PENDING, PixChargeStatus.EXPIRED):
+        return
+    try:
+        cob = provider.get_cob(charge.txid)
+        if provider.cob_has_refund(cob):
+            return
+        if provider.cob_paid_cents(cob) >= charge.amount_cents:
+            purchase_svc.confirm_payment(charge.txid, provider_confirmed=True)
+            current_app.logger.info(
+                "compra %s creditada via polling (webhook do C6 não chegou)",
+                charge.txid,
+            )
+    except Exception as exc:  # noqa: BLE001
+        db.session.rollback()
+        current_app.logger.warning(
+            "c6: reconsulta de %s falhou no polling: %s", charge.txid, exc
+        )
 
 
 # NOTA: o endpoint /pix/webhook (MercadoPago) foi REMOVIDO em 2026-08-01.

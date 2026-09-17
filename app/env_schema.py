@@ -108,6 +108,15 @@ def is_stripe_publishable(value: str) -> tuple[bool, str]:
     return True, ""
 
 
+def is_uuid(value: str) -> tuple[bool, str]:
+    """UUID (8-4-4-4-12 hex): formato do client_id do C6."""
+    import re
+
+    if re.fullmatch(r"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", value):
+        return True, ""
+    return False, "deve ser um UUID (ex.: 00000000-0000-4000-8000-000000000000)"
+
+
 def is_asaas_key(value: str) -> tuple[bool, str]:
     """API key do Asaas: `$aact_prod_…` (produção) ou `$aact_hmlg_…` (sandbox).
 
@@ -138,8 +147,8 @@ SCHEMA: list[tuple[str, bool, Callable[[str], tuple[bool, str]], str]] = [
     # Booleans/enums com valores aceitos
     ("MAILER",          False, is_in("console", "resend", "noop"),
      "noop|console|resend"),
-    ("PIX_PROVIDER",    False, is_in("mock", "asaas"),
-     "asaas (produção) | mock (homologação)"),
+    ("PIX_PROVIDER",    False, is_in("mock", "asaas", "c6"),
+     "c6 | asaas (produção) | mock (homologação)"),
     ("SMS_BACKEND",     False, is_in("console", "twilio"),
      "console|twilio"),
 
@@ -163,6 +172,16 @@ SCHEMA: list[tuple[str, bool, Callable[[str], tuple[bool, str]], str]] = [
      "sandbox|production — 'sandbox' NÃO envia PIX de verdade"),
     ("ASAAS_WEBHOOK_TOKEN", False, is_secret_min_32,
      "token do header asaas-access-token (32+ chars) — autentica o webhook"),
+
+    # C6 Bank — PIX de entrada (cobrança). Obrigatoriedade condicional em
+    # validate_env(): com PIX_PROVIDER=c6, credenciais, chave, certificado e
+    # token de webhook viram obrigatórios em produção.
+    ("C6_CLIENT_ID",     False, is_uuid,
+     "client_id OAuth2 do C6 (UUID)"),
+    ("C6_ENV",           False, is_in("sandbox", "production"),
+     "sandbox|production — 'sandbox' NÃO recebe dinheiro de verdade"),
+    ("C6_WEBHOOK_TOKEN", False, is_secret_min_32,
+     "segredo no caminho da URL do webhook (32+ chars)"),
 
     # Stripe — cartão internacional.
     ("STRIPE_API_KEY",   False, is_stripe_secret,
@@ -244,6 +263,34 @@ def validate_env(*, strict: bool | None = None) -> list[str]:
                     "[ASAAS_WEBHOOK_TOKEN] obrigatório com PIX_PROVIDER=asaas — sem ele "
                     "o webhook é rejeitado e nenhuma compra credita pontos"
                 )
+
+        # PIX é C6: sem credencial/chave/certificado não há como cobrar; sem o
+        # token de webhook nenhuma compra credita pontos.
+        if os.environ.get("PIX_PROVIDER", "").strip().lower() == "c6":
+            for var in ("C6_CLIENT_ID", "C6_CLIENT_SECRET", "C6_PIX_KEY", "C6_WEBHOOK_TOKEN"):
+                if not os.environ.get(var, "").strip():
+                    issues.append(f"[{var}] obrigatório com PIX_PROVIDER=c6")
+            has_files = bool(os.environ.get("C6_CERT_PATH", "").strip()
+                             and os.environ.get("C6_KEY_PATH", "").strip())
+            has_pem = bool(os.environ.get("C6_CERT_PEM", "").strip()
+                           and os.environ.get("C6_KEY_PEM", "").strip())
+            if not (has_files or has_pem):
+                issues.append(
+                    "[C6_CERT_PATH+C6_KEY_PATH ou C6_CERT_PEM+C6_KEY_PEM] obrigatório "
+                    "com PIX_PROVIDER=c6: a API do C6 exige mTLS"
+                )
+            if os.environ.get("C6_ENV", "sandbox").strip().lower() != "production":
+                if _homologacao():
+                    _avisar_homologacao(
+                        "C6_ENV é SANDBOX: cobrança PIX simulada credita pontos "
+                        "reais na base e nenhum dinheiro entra de verdade."
+                    )
+                else:
+                    issues.append(
+                        "[C6_ENV] precisa ser 'production' em produção; em sandbox "
+                        "nenhuma cobrança recebe dinheiro real. Se este ambiente é de "
+                        "homologação, declare com BLAXX_HOMOLOGACAO=1."
+                    )
 
         # Payout automático exige o provider de saída configurado por inteiro.
         if os.environ.get("PAYOUT_MODE", "").strip().lower() == "auto":

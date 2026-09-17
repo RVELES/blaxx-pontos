@@ -444,6 +444,51 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
             else:
                 pix_provider = _payout_provider
                 app.logger.info("PIX provider: Asaas (entrada + saída)")
+        elif provider_name == "c6":
+            # C6 Bank só na ENTRADA (cobrança). Sem payout_provider anexado,
+            # o bloco abaixo força PAYOUT_MODE=manual.
+            from .pix.c6 import C6Error, C6PixProvider, resolve_cert_paths
+            _c6_sandbox = (
+                (app.config.get("C6_ENV") or "sandbox").strip().lower() != "production"
+            )
+            try:
+                cert_path, key_path = resolve_cert_paths(
+                    app.config.get("C6_CERT_PATH") or "",
+                    app.config.get("C6_KEY_PATH") or "",
+                    app.config.get("C6_CERT_PEM") or "",
+                    app.config.get("C6_KEY_PEM") or "",
+                )
+                pix_provider = C6PixProvider(
+                    client_id=app.config.get("C6_CLIENT_ID") or "",
+                    client_secret=app.config.get("C6_CLIENT_SECRET") or "",
+                    pix_key=app.config.get("C6_PIX_KEY") or "",
+                    cert_path=cert_path,
+                    key_path=key_path,
+                    sandbox=_c6_sandbox,
+                )
+            except (C6Error, ValueError, OSError) as exc:
+                if _is_production(app):
+                    raise RuntimeError(f"PIX_PROVIDER=c6 mal configurado: {exc}") from exc
+                app.logger.error(
+                    "PIX_PROVIDER=c6 mal configurado (%s), caindo no Mock "
+                    "(permitido só fora de produção).", exc,
+                )
+                pix_provider = MockPixProvider()
+            else:
+                app.logger.info(
+                    "PIX provider: C6 Bank (%s), só entrada; resgate fica em "
+                    "PAYOUT_MODE manual", "sandbox" if _c6_sandbox else "PRODUÇÃO",
+                )
+                if _is_production(app) and _c6_sandbox:
+                    app.logger.error(
+                        "SEC-ALERTA: C6_ENV != production em produção; cobranças "
+                        "criadas no sandbox nunca recebem dinheiro real."
+                    )
+                if not app.config.get("C6_WEBHOOK_TOKEN"):
+                    app.logger.error(
+                        "SEC-ALERTA: C6_WEBHOOK_TOKEN vazio; o webhook do C6 será "
+                        "rejeitado e nenhuma compra credita pontos sozinha."
+                    )
         else:
             pix_provider = MockPixProvider()
             app.logger.info("PIX provider: Mock (demo)")
@@ -495,6 +540,7 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
     from .api.card_payments import bp as card_payments_bp
     from .api.pix import bp as pix_bp
     from .api.asaas_webhook import bp as asaas_webhook_bp
+    from .api.c6_webhook import bp as c6_webhook_bp
     from .api.stripe_webhook import bp as stripe_webhook_bp
     from .api.transfer import bp as transfer_bp
     from .api.redeem import bp as redeem_bp
@@ -520,6 +566,7 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
     app.register_blueprint(pix_bp, url_prefix="/pix")
     # Webhook de transferências do Asaas (PIX de saída/resgate)
     app.register_blueprint(asaas_webhook_bp, url_prefix="/payouts/asaas")
+    app.register_blueprint(c6_webhook_bp, url_prefix="/payments/c6")
     # Webhook do Stripe (cartão internacional) — corpo ASSINADO
     app.register_blueprint(stripe_webhook_bp, url_prefix="/payments/stripe")
     app.register_blueprint(transfer_bp, url_prefix="/transfer")
