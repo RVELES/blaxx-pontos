@@ -357,10 +357,16 @@ class Config:
     # Por isso `tests/test_google_oauth.py::test_17` compara este valor com o do
     # `blaxx/assets/blaxx-config.js`. Mudou aqui, mude lá (e vice-versa).
     #
-    # Nota: o client Web vive no projeto 602998235238 e o iOS no 105341431878.
-    # Projetos diferentes é incomum, mas funciona — o backend aceita os dois
-    # audiences, e o app iOS já publicado depende do seu.
+    # 16/10/2026: o client Web passou para o projeto `blaxx-pontos-511816`, na
+    # conta da empresa (rveles@blaxxpontos.com.br, organização
+    # blaxxpontos.com.br). O anterior (projeto 602998235238, fora da conta da
+    # empresa) segue ACEITO em GOOGLE_WEB_CLIENT_IDS_EXTRAS durante a transição:
+    # quem tem o JS antigo em cache ainda pede token para ele. O iOS continua no
+    # projeto 105341431878 — o app publicado depende desse audience.
     GOOGLE_WEB_CLIENT_ID_DEFAULT = (
+        "502025699810-eg0oj08j8ok02funb8or9gbe4e5uiqkb.apps.googleusercontent.com"
+    )
+    GOOGLE_WEB_CLIENT_ID_ANTERIOR = (
         "602998235238-ab43odgkvqjph1l0tgu8n49iafgkrcke.apps.googleusercontent.com"
     )
     GOOGLE_IOS_CLIENT_ID_DEFAULT = (
@@ -374,6 +380,14 @@ class Config:
     GOOGLE_IOS_CLIENT_ID = (
         os.environ.get("GOOGLE_IOS_CLIENT_ID") or GOOGLE_IOS_CLIENT_ID_DEFAULT
     )
+    # Aceitos SEMPRE, além do GOOGLE_WEB_CLIENT_ID efetivo: o client da conta da
+    # empresa (assim uma env var antiga no Render não derruba o login web) e o
+    # anterior, enquanto houver JS antigo em cache. Remover o anterior quando
+    # nenhum login chegar mais com aud 602998235238 (audit google_login).
+    GOOGLE_WEB_CLIENT_IDS_EXTRAS = [
+        GOOGLE_WEB_CLIENT_ID_DEFAULT,
+        GOOGLE_WEB_CLIENT_ID_ANTERIOR,
+    ]
 
     # B-8: os client_ids acima são identificadores OAuth públicos — não são
     # segredo. O problema é serem fallback SILENCIOSO: sem a env var, o backend
@@ -398,7 +412,8 @@ class Config:
     @classmethod
     def google_allowed_audiences(cls) -> list[str]:
         """Lista de audiences (client_ids) aceitos pelo /auth/google."""
-        return [a for a in (cls.GOOGLE_WEB_CLIENT_ID, cls.GOOGLE_IOS_CLIENT_ID) if a]
+        lista = [cls.GOOGLE_WEB_CLIENT_ID, cls.GOOGLE_IOS_CLIENT_ID, *cls.GOOGLE_WEB_CLIENT_IDS_EXTRAS]
+        return [a for a in dict.fromkeys(lista) if a]
 
     # T18: removido o esquema genérico de webhook PIX (PIX_WEBHOOK_SECRET,
     # PIX_WEBHOOK_ALLOWED_IPS) — desenhado para o Mercado Pago, nunca lido fora

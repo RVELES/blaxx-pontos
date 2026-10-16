@@ -177,6 +177,16 @@ def _queimar_tempo_de_hash(password: str) -> None:
         pass
 
 
+def _google_audiences() -> list[str]:
+    """Audiences aceitos no login Google: o client Web efetivo, o iOS e os
+    extras de GOOGLE_WEB_CLIENT_IDS_EXTRAS (client da conta da empresa e o
+    anterior, na transição de 16/10/2026). Sem vazio e sem repetição."""
+    cfg = current_app.config
+    lista = [cfg.get("GOOGLE_WEB_CLIENT_ID"), cfg.get("GOOGLE_IOS_CLIENT_ID")]
+    lista += list(cfg.get("GOOGLE_WEB_CLIENT_IDS_EXTRAS") or [])
+    return [a for a in dict.fromkeys(lista) if a]
+
+
 def _verificar_google_id_token(id_token_str: str) -> dict | None:
     """Valida um id_token do Google contra as audiences configuradas.
 
@@ -186,11 +196,7 @@ def _verificar_google_id_token(id_token_str: str) -> dict | None:
 
     Devolve o payload ou None — nunca levanta. Quem chama decide o erro.
     """
-    audiences = [
-        current_app.config.get("GOOGLE_WEB_CLIENT_ID"),
-        current_app.config.get("GOOGLE_IOS_CLIENT_ID"),
-    ]
-    audiences = [a for a in audiences if a]
+    audiences = _google_audiences()
     if not audiences or not id_token_str:
         return None
     try:
@@ -648,11 +654,7 @@ def google_sign_in():
     # sem precisar de FLASK_ENV ou variáveis de ambiente globais (evita leak
     # entre testes quando Config é importado antes do módulo de teste setar os
     # os.environ).
-    audiences = [
-        current_app.config.get("GOOGLE_WEB_CLIENT_ID"),
-        current_app.config.get("GOOGLE_IOS_CLIENT_ID"),
-    ]
-    audiences = [a for a in audiences if a]
+    audiences = _google_audiences()
     if not audiences:
         current_app.logger.error(
             "Google sign-in chamado mas GOOGLE_WEB_CLIENT_ID/GOOGLE_IOS_CLIENT_ID não configurados"

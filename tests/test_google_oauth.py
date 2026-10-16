@@ -314,11 +314,13 @@ def test_14_avatar_url_persisted(client, monkeypatch, app):
 def test_15_unconfigured_returns_503(client, monkeypatch, app):
     app.config["GOOGLE_WEB_CLIENT_ID"] = ""
     app.config["GOOGLE_IOS_CLIENT_ID"] = ""
+    app.config["GOOGLE_WEB_CLIENT_IDS_EXTRAS"] = []
 
     # Patcha Config.google_allowed_audiences pra refletir config nova
     from app.config import Config
     monkeypatch.setattr(Config, "GOOGLE_WEB_CLIENT_ID", "")
     monkeypatch.setattr(Config, "GOOGLE_IOS_CLIENT_ID", "")
+    monkeypatch.setattr(Config, "GOOGLE_WEB_CLIENT_IDS_EXTRAS", [])
 
     r = client.post("/auth/google", json={"id_token": "any.token"})
     assert r.status_code == 503
@@ -401,3 +403,29 @@ def test_17_client_id_do_front_esta_entre_os_audiences_aceitos():
         "blaxx-config.js — os dois precisam apontar para o mesmo client do "
         "mesmo projeto Google Cloud."
     )
+
+
+# ============================================================
+# 18. Troca de client Web (16/10/2026): o client da conta da empresa é aceito
+#     mesmo com GOOGLE_WEB_CLIENT_ID (env no Render) ainda no valor antigo,
+#     e o anterior continua aceito na transição.
+# ============================================================
+def test_18_client_da_empresa_e_anterior_aceitos_com_env_antiga(client, monkeypatch, app):
+    from app.config import Config
+
+    app.config["GOOGLE_WEB_CLIENT_ID"] = Config.GOOGLE_WEB_CLIENT_ID_ANTERIOR
+    app.config["GOOGLE_WEB_CLIENT_IDS_EXTRAS"] = list(Config.GOOGLE_WEB_CLIENT_IDS_EXTRAS)
+
+    novo = Config.GOOGLE_WEB_CLIENT_ID_DEFAULT
+    _patch_verify(monkeypatch, payload=_good_payload(aud=novo, azp=novo))
+    r = client.post("/auth/google", json={"id_token": "token.do.client.novo"})
+    assert r.status_code == 200, r.json
+
+    anterior = Config.GOOGLE_WEB_CLIENT_ID_ANTERIOR
+    _patch_verify(monkeypatch, payload=_good_payload(aud=anterior, azp=anterior, sub="999", email="maria@gmail.com"))
+    r = client.post("/auth/google", json={"id_token": "token.do.client.anterior"})
+    assert r.status_code == 200, r.json
+
+    _patch_verify(monkeypatch, payload=_good_payload(aud="outro-projeto.apps.googleusercontent.com", sub="777", email="x@gmail.com"))
+    r = client.post("/auth/google", json={"id_token": "token.de.outro.projeto"})
+    assert r.status_code == 401
