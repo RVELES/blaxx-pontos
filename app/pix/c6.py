@@ -79,13 +79,18 @@ _ONLY_DIGITS = re.compile(r"\D")
 # "../webhook/{chave}" faria o nosso backend chamar outro endpoint do C6
 # usando o nosso certificado mTLS.
 _TXID_RE = re.compile(r"^[a-zA-Z0-9]{26,35}$")
+_E2E_RE = re.compile(r"^[a-zA-Z0-9]{32}$")
 
 # Renova o token com esta folga antes do expires_in informado pelo C6.
 _TOKEN_SAFETY_SECONDS = 30
 
 
 class C6Error(RuntimeError):
-    """Erro de comunicação/negócio com o C6."""
+    """Erro de comunicação/negócio com o C6. `status` = HTTP devolvido, se houve."""
+
+    def __init__(self, msg: str = "", *, status: int | None = None):
+        super().__init__(msg)
+        self.status = status
 
 
 class _IndeterminateError(RuntimeError):
@@ -384,7 +389,7 @@ class C6PixProvider(PixProvider):
                     return json.loads(raw or "{}")
                 except ValueError as exc:
                     raise C6Error(f"C6 {method} {path}: resposta não é JSON") from exc
-            raise C6Error(f"HTTP {status}: {_describe_problem(raw)}")
+            raise C6Error(f"HTTP {status}: {_describe_problem(raw)}", status=status)
         raise C6Error("C6: não autenticou após renovar o token")  # pragma: no cover
 
     # ---------------- Cobrança (entrada) ---------------- #
@@ -447,6 +452,13 @@ class C6PixProvider(PixProvider):
         """`GET /cob/{txid}`: fonte de verdade depois do webhook."""
         _validate_txid(txid)
         return self._request("GET", f"/cob/{txid}")
+
+    def get_pix(self, e2eid: str) -> dict:
+        """`GET /pix/{e2eid}`: o Pix recebido, com o `txid` da cobrança que ele
+        pagou. A notificação do C6 pode chegar só com o endToEndId."""
+        if not _E2E_RE.match(e2eid or ""):
+            raise C6Error(f"endToEndId fora do padrão Bacen [a-zA-Z0-9]{{32}}: {e2eid!r}")
+        return self._request("GET", f"/pix/{e2eid}")
 
     def get_charge_status(self, txid: str) -> str:
         try:
