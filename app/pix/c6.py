@@ -63,6 +63,12 @@ API_HOST_PROD = "https://baas-api.c6bank.info"
 API_HOST_SANDBOX = "https://baas-api-sandbox.c6bank.info"
 AUTH_PATH = "/v1/auth/"
 PIX_PATH = "/v2/pix"
+# Checkout C6 Pay (link de pagamento com cartão). Mesmo host, token e mTLS.
+CHECKOUT_PATH = "/v1/checkouts"
+# Spec do Checkout: amount mínimo 5.00 (R$).
+CHECKOUT_MIN_CENTS = 500
+# Accept de toda chamada autenticada: sucesso vem em JSON, erro em problem+json.
+_ACCEPT = "application/json, application/problem+json"
 
 # Status da cobrança no C6 (padrão Bacen) → vocabulário interno.
 _STATUS_MAP = {
@@ -80,6 +86,13 @@ _ONLY_DIGITS = re.compile(r"\D")
 # usando o nosso certificado mTLS.
 _TXID_RE = re.compile(r"^[a-zA-Z0-9]{26,35}$")
 _E2E_RE = re.compile(r"^[a-zA-Z0-9]{32}$")
+# id do checkout é UUID gerado pelo C6; validado pelo mesmo motivo do txid
+# (vira path de URL autenticada). A referência externa é nossa: 1-10
+# alfanuméricos pela spec, e não pode repetir.
+_CHECKOUT_ID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+_EXTERNAL_REF_RE = re.compile(r"^[a-zA-Z0-9]{1,10}$")
 
 # Renova o token com esta folga antes do expires_in informado pelo C6.
 _TOKEN_SAFETY_SECONDS = 30
@@ -369,16 +382,25 @@ class C6PixProvider(PixProvider):
 
     # ---------------- API Pix ---------------- #
 
-    def _request(self, method: str, path: str, body: dict | None = None) -> dict:
-        """Chama {host}/v2/pix{path} com Bearer; em 401 renova o token e repete uma vez."""
-        url = self.host + PIX_PATH + path
+    def _request(
+        self, method: str, path: str, body: dict | None = None, *, base: str = PIX_PATH,
+    ) -> dict:
+        """Chama {host}{base}{path} com Bearer; em 401 renova o token e repete uma vez.
+
+        `base` default é a API Pix (/v2/pix); o Checkout usa /v1/checkouts com o
+        mesmo token e o mesmo certificado. 204 (cancelamento) volta como {}.
+        """
+        url = self.host + base + path
         data = json.dumps(body).encode() if body is not None else None
         token = self._bearer()
         for attempt in (1, 2):
             status, raw = self._http(method, url, data, {
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
-                "Accept": "application/json",
+                # Provado no sandbox (22/10): algumas rotas do C6 (ex.: PUT
+                # /webhook/{chave}) respondem 400 "must be one of
+                # [application/problem+json]" quando o Accept é só JSON.
+                "Accept": _ACCEPT,
                 "User-Agent": self.user_agent,
             })
             if status == 401 and attempt == 1:
@@ -520,6 +542,85 @@ class C6PixProvider(PixProvider):
     def delete_webhook(self) -> dict:
         return self._request("DELETE", f"/webhook/{urllib.parse.quote(self.pix_key)}")
 
+    # ---------------- Checkout (cartão, link de pagamento C6 Pay) ---------------- #
+
+    def create_checkout(
+        self,
+        amount_cents: int,
+        external_reference_id: str,
+        description: str = "",
+        redirect_url: str = "",
+        installments: int = 1,
+    ) -> dict:
+        """`POST /v1/checkouts/`: cria o link de pagamento só com cartão de crédito.
+
+        Devolve `{"id": <uuid do C6>, "url": <link para o cliente>}`.
+
+        Diferente do `PUT /cob/{txid}`, este POST NÃO é idempotente: o C6
+        recusa `external_reference_id` repetido, mas não oferece busca por ele.
+        Por isso timeout aqui vira erro (a compra é refeita com outra
+        referência); um link órfão no C6 não tem risco, ninguém tem a URL.
+        """
+        _validate_external_ref(external_reference_id)
+        cents = int(amount_cents)
+        if cents < CHECKOUT_MIN_CENTS:
+            # Spec: amount mínimo 5.00. Recusar aqui poupa uma ida ao C6.
+            raise C6Error(f"C6 Checkout: valor mínimo R$ 5,00 (recebi {cents} centavos)")
+        installments = int(installments or 1)
+        if not 1 <= installments <= 18:
+            raise C6Error(f"C6 Checkout: parcelas fora de 1..18: {installments}")
+        card: dict = {"type": "CREDIT", "installments": installments}
+        if installments > 1:
+            # Obrigatório com mais de 1 parcela. BY_ISSUER: o juro fica com o
+            # portador, e a BlaXx recebe o valor cheio que creditou em pontos.
+            card["interest_type"] = "BY_ISSUER"
+        payload: dict = {
+            # Spec: number em REAIS com ponto decimal. O valor nasce Decimal
+            # (centavos inteiros / 100) e só vira float na serialização: com
+            # 2 casas e teto de 500 mil, o repr do float é a própria string
+            # decimal ("180.05"), sem resíduo de arredondamento.
+            "amount": float(_reais(cents)),
+            "external_reference_id": external_reference_id,
+            "payment": {"card": card},
+        }
+        if description:
+            payload["description"] = description[:300]
+        if redirect_url and len(redirect_url) <= 300:
+            payload["redirect_url"] = redirect_url
+
+        try:
+            resp = self._request("POST", "/", payload, base=CHECKOUT_PATH)
+        except _IndeterminateError as exc:
+            log.error("C6 POST /checkouts INDETERMINADO ref=%s (%s)", external_reference_id, exc)
+            raise C6Error(f"C6: sem resposta ao criar o checkout ({exc})") from exc
+        if not isinstance(resp, dict):
+            resp = {}
+
+        checkout_id = resp.get("id") if isinstance(resp.get("id"), str) else ""
+        url = resp.get("url") if isinstance(resp.get("url"), str) else ""
+        if not _CHECKOUT_ID_RE.match(checkout_id) or not url.startswith("https://"):
+            # id fora do padrão viraria path de URL depois (consulta/cancela);
+            # sem URL https o cliente não tem onde pagar.
+            raise C6Error(
+                f"C6 Checkout: resposta sem id UUID ou sem url https (ref={external_reference_id})"
+            )
+        return {"id": checkout_id, "url": url}
+
+    def get_checkout(self, checkout_id: str) -> dict:
+        """`GET /v1/checkouts/{id}`: fonte de verdade do status (PAID etc.)."""
+        _validate_checkout_id(checkout_id)
+        return self._request("GET", f"/{checkout_id}", base=CHECKOUT_PATH)
+
+    def cancel_checkout(self, checkout_id: str) -> None:
+        """`PUT /v1/checkouts/{id}/cancel` (204). Pago vira estorno no C6."""
+        _validate_checkout_id(checkout_id)
+        self._request("PUT", f"/{checkout_id}/cancel", base=CHECKOUT_PATH)
+
+    @staticmethod
+    def checkout_amount_cents(checkout: dict) -> int:
+        """`amount` do checkout (number em reais) em centavos, via Decimal."""
+        return _cents(checkout.get("amount"))
+
     # ---------------- Payout (não suportado) ---------------- #
 
     def request_payout(self, req: PixPayoutRequest) -> PixPayoutResponse:
@@ -533,6 +634,22 @@ def _validate_txid(txid: str) -> None:
     """Recusa txid fora do padrão Bacen ANTES de ele virar path de URL."""
     if not _TXID_RE.match(txid or ""):
         raise C6Error(f"txid fora do padrão Bacen [a-zA-Z0-9]{{26,35}}: {txid!r}")
+
+
+def _validate_checkout_id(checkout_id: str) -> None:
+    """Recusa id de checkout que não é UUID ANTES de ele virar path de URL."""
+    if not isinstance(checkout_id, str) or not _CHECKOUT_ID_RE.match(checkout_id):
+        raise C6Error(f"id de checkout fora do padrão UUID: {checkout_id!r}")
+
+
+def _validate_external_ref(ref: str) -> None:
+    if not isinstance(ref, str) or not _EXTERNAL_REF_RE.match(ref):
+        raise C6Error(f"external_reference_id fora de [a-zA-Z0-9]{{1,10}}: {ref!r}")
+
+
+def _reais(amount_cents: int) -> Decimal:
+    """Centavos inteiros → Decimal em reais com 2 casas (18005 → 180.05)."""
+    return (Decimal(int(amount_cents)) / Decimal(100)).quantize(Decimal("0.01"))
 
 
 def _brl(amount_cents: int) -> str:

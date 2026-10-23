@@ -51,6 +51,19 @@ def test_readyz_checks_db_and_routes(client):
     assert body["ready"] is True
     assert body["checks"]["db"] == "ok"
     assert body["checks"]["routes"] == "ok"
+    assert body["checks"]["schema"] == "ok"
+
+
+def test_readyz_acusa_coluna_faltando(app, client):
+    """Código novo sem a migration: /readyz 503, o Render não promove."""
+    from sqlalchemy import text
+    from app.extensions import db
+    with app.app_context():
+        db.session.execute(text("ALTER TABLE pix_charges DROP COLUMN provider_ref"))
+        db.session.commit()
+    r = client.get("/readyz")
+    assert r.status_code == 503
+    assert r.get_json()["checks"]["schema"].startswith("FAIL")
 
 
 def test_metrics_health_diagnostic(client):

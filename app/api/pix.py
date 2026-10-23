@@ -74,7 +74,12 @@ def get_charge(charge_id: str):
     charge = db.session.get(PixCharge, charge_id)
     if charge is None or charge.user_id != g.current_user.id:
         return jsonify({"error": "not found"}), 404
-    _reconsultar_c6_se_pendente(charge)
+    if charge.flow == purchase_svc.FLOW_C6_CARTAO:
+        # Compra com cartão: o txid é a referência do Checkout, não uma cob
+        # Pix. GET /cob com ele seria recusado em todo polling.
+        purchase_svc.refresh_card_checkout(charge)
+    else:
+        _reconsultar_c6_se_pendente(charge)
     purchase_svc.expire_if_needed(charge)
     return jsonify(charge.to_dict())
 

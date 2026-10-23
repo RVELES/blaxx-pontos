@@ -1,0 +1,671 @@
+{
+  "exemplo": true,
+  "aviso": "EXEMPLO FICTÍCIO: nenhum dado veio do C6. Não enviar.",
+  "executado_em": "2026-10-23T10:30:00-03:00",
+  "ambiente": "EXEMPLO",
+  "host": "https://baas-api-sandbox.c6bank.info",
+  "executor": "scripts/c6_homologacao.py (simulado)",
+  "resultados": [
+    {
+      "id": "AT_01",
+      "status": 200,
+      "corpo": {
+        "access_token": "EXEMPLOaccessTokenFicticio000000000000000000",
+        "expires_in": 300,
+        "token_type": "Bearer",
+        "scope": "pix.read pix.write payloadlocation.read payloadlocation.write lotecobv.read lotecobv.write cob.read cob.write cobv.read cobv.write webhook.read webhook.write"
+      }
+    },
+    {
+      "id": "P_01_01",
+      "status": 201,
+      "corpo": {
+        "calendario": {
+          "criacao": "2026-10-23T10:00:00.000Z",
+          "expiracao": 3600
+        },
+        "txid": "EXEMPLOtxid00000000000000000001",
+        "revisao": 0,
+        "loc": {
+          "id": 1001,
+          "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxid00000000000000000001",
+          "tipoCob": "cob"
+        },
+        "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxid00000000000000000001",
+        "status": "ATIVA",
+        "devedor": {
+          "cpf": "00000000000",
+          "nome": "DEVEDOR EXEMPLO FICTICIO"
+        },
+        "valor": {
+          "original": "1.00",
+          "modalidadeAlteracao": 0
+        },
+        "chave": "exemplo-chave-ficticia@exemplo.invalid",
+        "solicitacaoPagador": "Compra de pontos BlaXx (EXEMPLO)",
+        "pixCopiaECola": "00020101021226830014br.gov.bcb.pix2561pix.exemplo.invalid/qr/v2/EXEMPLOtxid000000000000000000015204000053039865802BR5913EXEMPLO FICTI6009SAO PAULO62070503***6304ABCD"
+      }
+    },
+    {
+      "id": "P_01_02",
+      "status": 201,
+      "corpo": {
+        "calendario": {
+          "criacao": "2026-10-23T10:00:00.000Z",
+          "expiracao": 3600
+        },
+        "txid": "EXEMPLOtxidGeradoPeloPSP000002",
+        "revisao": 0,
+        "loc": {
+          "id": 1001,
+          "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidGeradoPeloPSP000002",
+          "tipoCob": "cob"
+        },
+        "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidGeradoPeloPSP000002",
+        "status": "ATIVA",
+        "devedor": {
+          "cpf": "00000000000",
+          "nome": "DEVEDOR EXEMPLO FICTICIO"
+        },
+        "valor": {
+          "original": "1.00",
+          "modalidadeAlteracao": 0
+        },
+        "chave": "exemplo-chave-ficticia@exemplo.invalid",
+        "solicitacaoPagador": "Compra de pontos BlaXx (EXEMPLO)",
+        "pixCopiaECola": "00020101021226830014br.gov.bcb.pix2561pix.exemplo.invalid/qr/v2/EXEMPLOtxidGeradoPeloPSP0000025204000053039865802BR5913EXEMPLO FICTI6009SAO PAULO62070503***6304ABCD"
+      },
+      "nota": "EXEMPLO: o roteiro pede 200; a spec pix-api v3.0.1 documenta 201."
+    },
+    {
+      "id": "P_01_03",
+      "status": 200,
+      "corpo": {
+        "calendario": {
+          "criacao": "2026-10-23T10:00:00.000Z",
+          "expiracao": 3600
+        },
+        "txid": "EXEMPLOtxid00000000000000000001",
+        "revisao": 1,
+        "loc": {
+          "id": 1001,
+          "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxid00000000000000000001",
+          "tipoCob": "cob"
+        },
+        "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxid00000000000000000001",
+        "status": "ATIVA",
+        "devedor": {
+          "cpf": "00000000000",
+          "nome": "DEVEDOR EXEMPLO FICTICIO"
+        },
+        "valor": {
+          "original": "1.00",
+          "modalidadeAlteracao": 0
+        },
+        "chave": "exemplo-chave-ficticia@exemplo.invalid",
+        "solicitacaoPagador": "Revisada (EXEMPLO)",
+        "pixCopiaECola": "00020101021226830014br.gov.bcb.pix2561pix.exemplo.invalid/qr/v2/EXEMPLOtxid000000000000000000015204000053039865802BR5913EXEMPLO FICTI6009SAO PAULO62070503***6304ABCD"
+      }
+    },
+    {
+      "id": "P_01_04",
+      "status": 200,
+      "corpo": {
+        "calendario": {
+          "criacao": "2026-10-23T10:00:00.000Z",
+          "expiracao": 3600
+        },
+        "txid": "EXEMPLOtxid00000000000000000001",
+        "revisao": 1,
+        "loc": {
+          "id": 1001,
+          "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxid00000000000000000001",
+          "tipoCob": "cob"
+        },
+        "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxid00000000000000000001",
+        "status": "ATIVA",
+        "devedor": {
+          "cpf": "00000000000",
+          "nome": "DEVEDOR EXEMPLO FICTICIO"
+        },
+        "valor": {
+          "original": "1.00",
+          "modalidadeAlteracao": 0
+        },
+        "chave": "exemplo-chave-ficticia@exemplo.invalid",
+        "solicitacaoPagador": "Revisada (EXEMPLO)",
+        "pixCopiaECola": "00020101021226830014br.gov.bcb.pix2561pix.exemplo.invalid/qr/v2/EXEMPLOtxid000000000000000000015204000053039865802BR5913EXEMPLO FICTI6009SAO PAULO62070503***6304ABCD"
+      }
+    },
+    {
+      "id": "P_01_05",
+      "status": 200,
+      "corpo": {
+        "parametros": {
+          "inicio": "2026-10-23T00:00:00Z",
+          "fim": "2026-10-23T23:59:59Z",
+          "paginacao": {
+            "paginaAtual": 0,
+            "itensPorPagina": 100,
+            "quantidadeDePaginas": 1,
+            "quantidadeTotalDeItens": 7
+          }
+        },
+        "cobs": [
+          {
+            "calendario": {
+              "criacao": "2026-10-23T10:00:00.000Z",
+              "expiracao": 3600
+            },
+            "txid": "EXEMPLOtxidLista000000000000000",
+            "revisao": 0,
+            "loc": {
+              "id": 1001,
+              "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000000",
+              "tipoCob": "cob"
+            },
+            "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000000",
+            "status": "ATIVA",
+            "devedor": {
+              "cpf": "00000000000",
+              "nome": "DEVEDOR EXEMPLO FICTICIO"
+            },
+            "valor": {
+              "original": "1.00",
+              "modalidadeAlteracao": 0
+            },
+            "chave": "exemplo-chave-ficticia@exemplo.invalid",
+            "solicitacaoPagador": "Compra de pontos BlaXx (EXEMPLO)",
+            "pixCopiaECola": "00020101021226830014br.gov.bcb.pix2561pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista0000000000000005204000053039865802BR5913EXEMPLO FICTI6009SAO PAULO62070503***6304ABCD"
+          },
+          {
+            "calendario": {
+              "criacao": "2026-10-23T10:00:00.000Z",
+              "expiracao": 3600
+            },
+            "txid": "EXEMPLOtxidLista000000000000001",
+            "revisao": 0,
+            "loc": {
+              "id": 1001,
+              "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000001",
+              "tipoCob": "cob"
+            },
+            "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000001",
+            "status": "ATIVA",
+            "devedor": {
+              "cpf": "00000000000",
+              "nome": "DEVEDOR EXEMPLO FICTICIO"
+            },
+            "valor": {
+              "original": "1.00",
+              "modalidadeAlteracao": 0
+            },
+            "chave": "exemplo-chave-ficticia@exemplo.invalid",
+            "solicitacaoPagador": "Compra de pontos BlaXx (EXEMPLO)",
+            "pixCopiaECola": "00020101021226830014br.gov.bcb.pix2561pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista0000000000000015204000053039865802BR5913EXEMPLO FICTI6009SAO PAULO62070503***6304ABCD"
+          },
+          {
+            "calendario": {
+              "criacao": "2026-10-23T10:00:00.000Z",
+              "expiracao": 3600
+            },
+            "txid": "EXEMPLOtxidLista000000000000002",
+            "revisao": 0,
+            "loc": {
+              "id": 1001,
+              "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000002",
+              "tipoCob": "cob"
+            },
+            "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000002",
+            "status": "ATIVA",
+            "devedor": {
+              "cpf": "00000000000",
+              "nome": "DEVEDOR EXEMPLO FICTICIO"
+            },
+            "valor": {
+              "original": "1.00",
+              "modalidadeAlteracao": 0
+            },
+            "chave": "exemplo-chave-ficticia@exemplo.invalid",
+            "solicitacaoPagador": "Compra de pontos BlaXx (EXEMPLO)",
+            "pixCopiaECola": "00020101021226830014br.gov.bcb.pix2561pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista0000000000000025204000053039865802BR5913EXEMPLO FICTI6009SAO PAULO62070503***6304ABCD"
+          },
+          {
+            "calendario": {
+              "criacao": "2026-10-23T10:00:00.000Z",
+              "expiracao": 3600
+            },
+            "txid": "EXEMPLOtxidLista000000000000003",
+            "revisao": 0,
+            "loc": {
+              "id": 1001,
+              "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000003",
+              "tipoCob": "cob"
+            },
+            "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000003",
+            "status": "ATIVA",
+            "devedor": {
+              "cpf": "00000000000",
+              "nome": "DEVEDOR EXEMPLO FICTICIO"
+            },
+            "valor": {
+              "original": "1.00",
+              "modalidadeAlteracao": 0
+            },
+            "chave": "exemplo-chave-ficticia@exemplo.invalid",
+            "solicitacaoPagador": "Compra de pontos BlaXx (EXEMPLO)",
+            "pixCopiaECola": "00020101021226830014br.gov.bcb.pix2561pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista0000000000000035204000053039865802BR5913EXEMPLO FICTI6009SAO PAULO62070503***6304ABCD"
+          },
+          {
+            "calendario": {
+              "criacao": "2026-10-23T10:00:00.000Z",
+              "expiracao": 3600
+            },
+            "txid": "EXEMPLOtxidLista000000000000004",
+            "revisao": 0,
+            "loc": {
+              "id": 1001,
+              "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000004",
+              "tipoCob": "cob"
+            },
+            "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000004",
+            "status": "ATIVA",
+            "devedor": {
+              "cpf": "00000000000",
+              "nome": "DEVEDOR EXEMPLO FICTICIO"
+            },
+            "valor": {
+              "original": "1.00",
+              "modalidadeAlteracao": 0
+            },
+            "chave": "exemplo-chave-ficticia@exemplo.invalid",
+            "solicitacaoPagador": "Compra de pontos BlaXx (EXEMPLO)",
+            "pixCopiaECola": "00020101021226830014br.gov.bcb.pix2561pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista0000000000000045204000053039865802BR5913EXEMPLO FICTI6009SAO PAULO62070503***6304ABCD"
+          },
+          {
+            "calendario": {
+              "criacao": "2026-10-23T10:00:00.000Z",
+              "expiracao": 3600
+            },
+            "txid": "EXEMPLOtxidLista000000000000005",
+            "revisao": 0,
+            "loc": {
+              "id": 1001,
+              "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000005",
+              "tipoCob": "cob"
+            },
+            "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000005",
+            "status": "ATIVA",
+            "devedor": {
+              "cpf": "00000000000",
+              "nome": "DEVEDOR EXEMPLO FICTICIO"
+            },
+            "valor": {
+              "original": "1.00",
+              "modalidadeAlteracao": 0
+            },
+            "chave": "exemplo-chave-ficticia@exemplo.invalid",
+            "solicitacaoPagador": "Compra de pontos BlaXx (EXEMPLO)",
+            "pixCopiaECola": "00020101021226830014br.gov.bcb.pix2561pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista0000000000000055204000053039865802BR5913EXEMPLO FICTI6009SAO PAULO62070503***6304ABCD"
+          },
+          {
+            "calendario": {
+              "criacao": "2026-10-23T10:00:00.000Z",
+              "expiracao": 3600
+            },
+            "txid": "EXEMPLOtxidLista000000000000006",
+            "revisao": 0,
+            "loc": {
+              "id": 1001,
+              "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000006",
+              "tipoCob": "cob"
+            },
+            "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista000000000000006",
+            "status": "ATIVA",
+            "devedor": {
+              "cpf": "00000000000",
+              "nome": "DEVEDOR EXEMPLO FICTICIO"
+            },
+            "valor": {
+              "original": "1.00",
+              "modalidadeAlteracao": 0
+            },
+            "chave": "exemplo-chave-ficticia@exemplo.invalid",
+            "solicitacaoPagador": "Compra de pontos BlaXx (EXEMPLO)",
+            "pixCopiaECola": "00020101021226830014br.gov.bcb.pix2561pix.exemplo.invalid/qr/v2/EXEMPLOtxidLista0000000000000065204000053039865802BR5913EXEMPLO FICTI6009SAO PAULO62070503***6304ABCD"
+          }
+        ]
+      }
+    },
+    {
+      "id": "P_02_01",
+      "status": 201,
+      "corpo": {
+        "calendario": {
+          "criacao": "2026-10-23T10:05:00.000Z",
+          "dataDeVencimento": "2026-11-30",
+          "validadeAposVencimento": 30
+        },
+        "txid": "EXEMPLOtxidCobv0000000000000003",
+        "revisao": 0,
+        "loc": {
+          "id": 1002,
+          "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidCobv0000000000000003",
+          "tipoCob": "cobv"
+        },
+        "status": "ATIVA",
+        "devedor": {
+          "cpf": "00000000000",
+          "nome": "DEVEDOR EXEMPLO FICTICIO",
+          "logradouro": "<EXEMPLO>",
+          "cidade": "<EXEMPLO>",
+          "uf": "SP",
+          "cep": "00000000"
+        },
+        "recebedor": {
+          "nome": "<EXEMPLO RECEBEDOR>"
+        },
+        "valor": {
+          "original": "2.00"
+        },
+        "chave": "exemplo-chave-ficticia@exemplo.invalid",
+        "solicitacaoPagador": "Cobrança com vencimento (EXEMPLO)"
+      }
+    },
+    {
+      "id": "P_02_02",
+      "status": 200,
+      "corpo": {
+        "calendario": {
+          "criacao": "2026-10-23T10:05:00.000Z",
+          "dataDeVencimento": "2026-11-30",
+          "validadeAposVencimento": 30
+        },
+        "txid": "EXEMPLOtxidCobv0000000000000003",
+        "revisao": 1,
+        "loc": {
+          "id": 1002,
+          "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidCobv0000000000000003",
+          "tipoCob": "cobv"
+        },
+        "status": "ATIVA",
+        "devedor": {
+          "cpf": "00000000000",
+          "nome": "DEVEDOR EXEMPLO FICTICIO",
+          "logradouro": "<EXEMPLO>",
+          "cidade": "<EXEMPLO>",
+          "uf": "SP",
+          "cep": "00000000"
+        },
+        "recebedor": {
+          "nome": "<EXEMPLO RECEBEDOR>"
+        },
+        "valor": {
+          "original": "2.50"
+        },
+        "chave": "exemplo-chave-ficticia@exemplo.invalid",
+        "solicitacaoPagador": "Cobrança com vencimento (EXEMPLO)"
+      }
+    },
+    {
+      "id": "P_02_03",
+      "status": 200,
+      "corpo": {
+        "calendario": {
+          "criacao": "2026-10-23T10:05:00.000Z",
+          "dataDeVencimento": "2026-11-30",
+          "validadeAposVencimento": 30
+        },
+        "txid": "EXEMPLOtxidCobv0000000000000003",
+        "revisao": 1,
+        "loc": {
+          "id": 1002,
+          "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidCobv0000000000000003",
+          "tipoCob": "cobv"
+        },
+        "status": "ATIVA",
+        "devedor": {
+          "cpf": "00000000000",
+          "nome": "DEVEDOR EXEMPLO FICTICIO",
+          "logradouro": "<EXEMPLO>",
+          "cidade": "<EXEMPLO>",
+          "uf": "SP",
+          "cep": "00000000"
+        },
+        "recebedor": {
+          "nome": "<EXEMPLO RECEBEDOR>"
+        },
+        "valor": {
+          "original": "2.50"
+        },
+        "chave": "exemplo-chave-ficticia@exemplo.invalid",
+        "solicitacaoPagador": "Cobrança com vencimento (EXEMPLO)"
+      }
+    },
+    {
+      "id": "P_02_04",
+      "status": 200,
+      "corpo": {
+        "parametros": {
+          "inicio": "2026-10-23T00:00:00Z",
+          "fim": "2026-10-23T23:59:59Z",
+          "paginacao": {
+            "paginaAtual": 0,
+            "itensPorPagina": 100,
+            "quantidadeDePaginas": 1,
+            "quantidadeTotalDeItens": 1
+          }
+        },
+        "cobs": [
+          {
+            "calendario": {
+              "criacao": "2026-10-23T10:05:00.000Z",
+              "dataDeVencimento": "2026-11-30",
+              "validadeAposVencimento": 30
+            },
+            "txid": "EXEMPLOtxidCobv0000000000000003",
+            "revisao": 1,
+            "loc": {
+              "id": 1002,
+              "location": "pix.exemplo.invalid/qr/v2/EXEMPLOtxidCobv0000000000000003",
+              "tipoCob": "cobv"
+            },
+            "status": "ATIVA",
+            "devedor": {
+              "cpf": "00000000000",
+              "nome": "DEVEDOR EXEMPLO FICTICIO",
+              "logradouro": "<EXEMPLO>",
+              "cidade": "<EXEMPLO>",
+              "uf": "SP",
+              "cep": "00000000"
+            },
+            "recebedor": {
+              "nome": "<EXEMPLO RECEBEDOR>"
+            },
+            "valor": {
+              "original": "2.50"
+            },
+            "chave": "exemplo-chave-ficticia@exemplo.invalid",
+            "solicitacaoPagador": "Cobrança com vencimento (EXEMPLO)"
+          }
+        ]
+      }
+    },
+    {
+      "id": "P_03_01",
+      "status": 202,
+      "corpo": null
+    },
+    {
+      "id": "P_03_02",
+      "status": 202,
+      "corpo": null
+    },
+    {
+      "id": "P_03_03",
+      "status": 200,
+      "corpo": {
+        "descricao": "Lote EXEMPLO",
+        "criacao": "2026-10-23T10:10:00.000Z",
+        "cobsv": [
+          {
+            "txid": "EXEMPLOtxidLote00000000000000A1",
+            "status": "CRIADA"
+          },
+          {
+            "txid": "EXEMPLOtxidLote00000000000000A2",
+            "status": "CRIADA"
+          }
+        ]
+      }
+    },
+    {
+      "id": "P_03_04",
+      "status": 200,
+      "corpo": {
+        "parametros": {
+          "inicio": "2026-10-23T00:00:00Z",
+          "fim": "2026-10-23T23:59:59Z",
+          "paginacao": {
+            "paginaAtual": 0,
+            "itensPorPagina": 100,
+            "quantidadeDePaginas": 1,
+            "quantidadeTotalDeItens": 1
+          }
+        },
+        "lotes": [
+          {
+            "id": "1",
+            "descricao": "Lote EXEMPLO",
+            "criacao": "2026-10-23T10:10:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": "P_04_01",
+      "status": 201,
+      "corpo": {
+        "id": 7001,
+        "location": "pix.exemplo.invalid/qr/v2/loc7001",
+        "tipoCob": "cob",
+        "criacao": "2026-10-23T10:20:00.000Z"
+      }
+    },
+    {
+      "id": "P_04_02",
+      "status": 200,
+      "corpo": {
+        "parametros": {
+          "inicio": "2026-10-23T00:00:00Z",
+          "fim": "2026-10-23T23:59:59Z",
+          "paginacao": {
+            "paginaAtual": 0,
+            "itensPorPagina": 100,
+            "quantidadeDePaginas": 1,
+            "quantidadeTotalDeItens": 1
+          }
+        },
+        "loc": [
+          {
+            "id": 7001,
+            "location": "pix.exemplo.invalid/qr/v2/loc7001",
+            "tipoCob": "cob",
+            "criacao": "2026-10-23T10:20:00.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": "P_04_03",
+      "status": 200,
+      "corpo": {
+        "id": 7001,
+        "txid": "EXEMPLOtxidComLoc0000000000004",
+        "location": "pix.exemplo.invalid/qr/v2/loc7001",
+        "tipoCob": "cob",
+        "criacao": "2026-10-23T10:20:00.000Z",
+        "imagemQrcode": "data:image/png;base64,EXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLOEXEMPLO"
+      }
+    },
+    {
+      "id": "P_04_04",
+      "status": 200,
+      "corpo": {
+        "id": 7001,
+        "location": "pix.exemplo.invalid/qr/v2/loc7001",
+        "tipoCob": "cob",
+        "criacao": "2026-10-23T10:20:00.000Z"
+      }
+    },
+    {
+      "id": "P_05_01",
+      "status": 404,
+      "corpo": {
+        "type": "https://pix.bcb.gov.br/api/v2/error/PixNaoEncontrado",
+        "title": "Não Encontrado",
+        "status": 404,
+        "detail": "EXEMPLO: Pix não encontrado."
+      },
+      "nota": "EXEMPLO: sem Pix pago no sandbox não há e2eid real."
+    },
+    {
+      "id": "P_05_02",
+      "status": 200,
+      "corpo": {
+        "parametros": {
+          "inicio": "2026-10-23T00:00:00Z",
+          "fim": "2026-10-23T23:59:59Z",
+          "paginacao": {
+            "paginaAtual": 0,
+            "itensPorPagina": 100,
+            "quantidadeDePaginas": 1,
+            "quantidadeTotalDeItens": 0
+          }
+        },
+        "pix": []
+      }
+    },
+    {
+      "id": "P_05_03",
+      "status": 404,
+      "corpo": {
+        "type": "https://pix.bcb.gov.br/api/v2/error/PixNaoEncontrado",
+        "title": "Não Encontrado",
+        "status": 404,
+        "detail": "EXEMPLO: Pix não encontrado."
+      },
+      "nota": "EXEMPLO: depende do e2eid do P_05_01."
+    },
+    {
+      "id": "P_05_04",
+      "status": 404,
+      "corpo": {
+        "type": "https://pix.bcb.gov.br/api/v2/error/PixNaoEncontrado",
+        "title": "Não Encontrado",
+        "status": 404,
+        "detail": "EXEMPLO: Devolução não encontrado."
+      },
+      "nota": "EXEMPLO: depende do P_05_03."
+    },
+    {
+      "id": "P_06_01",
+      "status": 200,
+      "corpo": null
+    },
+    {
+      "id": "P_06_02",
+      "status": 200,
+      "corpo": {
+        "webhookUrl": "https://blaxx-pontos-exe.onrender.com/payments/c6/webhook/EXEMPLOtokenFicticioWebhook0001",
+        "chave": "exemplo-chave-ficticia@exemplo.invalid",
+        "criacao": "2026-10-23T09:59:00.000Z"
+      }
+    },
+    {
+      "id": "P_06_03",
+      "status": 204,
+      "corpo": null
+    }
+  ]
+}

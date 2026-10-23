@@ -284,6 +284,13 @@ class Config:
     # Segredo no caminho da URL do webhook (/payments/c6/webhook/<token>).
     # O handler também reconsulta a API antes de creditar.
     C6_WEBHOOK_TOKEN = os.environ.get("C6_WEBHOOK_TOKEN", "").strip()
+    # Compra de pontos com cartão pelo Checkout do C6 (link de pagamento).
+    # Desligada por padrão, como CARD_ENABLED: o deploy do código não liga o
+    # fluxo; liga-se a env var depois de homologar o Checkout com o C6.
+    C6_CHECKOUT_ENABLED = os.environ.get("C6_CHECKOUT_ENABLED", "0").strip() in ("1", "true", "yes")
+    # Para onde o C6 devolve o cliente após pagar (https, até 300 chars com a
+    # query). Vazio = {FRONTEND_URL}/dashboard.
+    C6_CHECKOUT_REDIRECT_URL = os.environ.get("C6_CHECKOUT_REDIRECT_URL", "").strip()
 
     # ---- Stripe: cartão INTERNACIONAL ---- #
     # Stripe não faz PIX no Brasil (invite-only + 60 dias de histórico) nem

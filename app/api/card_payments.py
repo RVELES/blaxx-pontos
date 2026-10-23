@@ -72,6 +72,19 @@ def card_config():
     A chave publicável é pública por design — quem tokeniza é o browser, e o
     número do cartão nunca chega a este backend.
     """
+    # Checkout do C6 (link de pagamento) vence o Stripe quando ligado: é o
+    # cartão nacional da conta PJ. O front só redireciona para a página do C6,
+    # então não há chave pública nem SDK.
+    pix = current_app.extensions.get("pix_provider")
+    if current_app.config.get("C6_CHECKOUT_ENABLED") and getattr(pix, "name", "") == "c6":
+        return jsonify({
+            "enabled": True,
+            "provider": "c6",
+            "public_key": "",
+            "max_installments": 1,
+            "checkout_path": "/payments/c6/card/checkout",
+        })
+
     enabled = _card_enabled()
     stripe = current_app.extensions.get("card_intl_provider")
 

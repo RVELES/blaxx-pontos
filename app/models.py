@@ -402,7 +402,14 @@ class PixCharge(db.Model):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     # 'auto' (webhook do provedor) | 'manual' (admin confirma)
+    # | 'c6-cartao' (Checkout C6 Pay: br_code guarda a URL do link de
+    # pagamento e txid é o external_reference_id de 10 alfanuméricos)
     flow: Mapped[str] = mapped_column(String(16), nullable=False, default="mp")
+    # id do objeto no provedor quando ele NÃO é o txid. Checkout C6: UUID do
+    # checkout, gerado pelo C6 na criação e exigido para consultar/cancelar.
+    # Não dá para extraí-lo da URL (o link usa outro identificador), daí a
+    # coluna própria (migration 0022). Nulo para PIX.
+    provider_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
 
     __table_args__ = (

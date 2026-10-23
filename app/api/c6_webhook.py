@@ -24,10 +24,11 @@ Checkout (cartão / link de pagamento) usa OUTRO formato, o das notificações
 do C6 (`POST /v1/webhooks` com `service: "CHECKOUT"`): `{external_id,
 date_time, status, client_id, partner_id, service, information}`, em que
 `information` é o checkout serializado em STRING. Ele chega na mesma URL ou
-em `.../checkout`. Hoje só registramos o evento (homologação C_0501/C_0502):
-NÃO credita ponto nenhum, porque a compra por cartão ainda não existe no
-produto. Quando existir, valem as mesmas regras do Pix: o corpo é gatilho,
-reconsultar `GET /v1/checkouts/{id}` antes de creditar. O `information`
+em `.../checkout`. Todo evento é registrado (homologação C_0501/C_0502); só
+PAID pode creditar, e com as mesmas regras do Pix: o corpo é gatilho, a
+charge (flow "c6-cartao") é achada pela `external_reference_id` e o checkout
+é reconsultado em `GET /v1/checkouts/{id}` pelo id guardado na criação antes
+de creditar (ver `_checkout_pago` e `purchase.sync_checkout`). O `information`
 traz nome, CPF/CNPJ, e-mail e endereço do pagador e o token do cartão;
 nada disso vai para log (ver `_resumo_checkout`).
 """
@@ -169,6 +170,14 @@ def _process(txid: str, e2e: str) -> str:
             _limpo(txid), e2e,
         )
         return "desconhecido"
+    if charge.flow == purchase_svc.FLOW_C6_CARTAO:
+        # txid de compra com cartão (referência do Checkout) num corpo de Pix:
+        # não existe cob para ele, e GET /cob falharia em loop de reenvio.
+        current_app.logger.warning(
+            "c6 webhook: txid=%s é de compra com cartão, não de Pix; ignorado.",
+            _limpo(txid),
+        )
+        return "fluxo-cartao"
 
     # Fonte de verdade: a API, não o corpo do webhook.
     cob = provider.get_cob(txid)
@@ -325,13 +334,95 @@ def _notificacao_c6(payload: dict):
             status, external_id,
         )
     resumo = _resumo_checkout(info)
-    # Gatilho, não verdade: sem compra por cartão no produto, nada é creditado.
     current_app.logger.info(
         "c6 checkout %s: external_id=%s date_time=%s %s",
         status, external_id, _limpo(payload.get("date_time"), 40),
         " ".join(f"{k}={v}" for k, v in resumo.items()),
     )
-    return jsonify({
+    corpo = {
         "ok": True, "service": "CHECKOUT", "status": status,
         "external_id": external_id, "result": "registrado",
-    }), 200
+    }
+    status_info = _limpo((info or {}).get("status"), 24).upper()
+    if info is None or not ({"PAID", "CANCELLED"} & {status, status_info}):
+        # Só PAID move ponto; CANCELLED reconsulta para flagrar estorno de charge
+        # já paga. CREATED/DECLINED/EXPIRED ficam no log; a charge expira pelo
+        # TTL ou pelo polling, que consulta a API.
+        return jsonify(corpo), 200
+
+    credito, http = _checkout_pago(info)
+    corpo["credito"] = credito
+    if http != 200:
+        corpo["ok"] = False
+    return jsonify(corpo), http
+
+
+_REF_RE = re.compile(r"^[a-zA-Z0-9]{1,10}$")
+
+
+def _checkout_pago(info: dict) -> tuple[str, int]:
+    """Gatilho de pagamento de cartão. O corpo só diz QUAL charge olhar.
+
+    A charge é achada pela external_reference_id (o nosso txid de 10
+    caracteres) e o checkout reconsultado na API pelo id que NÓS guardamos
+    na criação; sync_checkout exige PAID, mesma referência e valor cheio.
+    Rede/5xx → 503 (o C6 reenvia); 4xx permanente → ERROR + 200.
+    """
+    from ..models import PixCharge
+    from ..pix.c6 import C6Error
+    from ..services import purchase as purchase_svc
+
+    ref = info.get("external_reference_id")
+    if not isinstance(ref, str) or not _REF_RE.match(ref):
+        current_app.logger.warning("c6 checkout PAID sem external_reference_id válida; ignorado.")
+        return "sem-referencia", 200
+    charge = db.session.query(PixCharge).filter_by(
+        txid=ref, flow=purchase_svc.FLOW_C6_CARTAO).one_or_none()
+    if charge is None:
+        current_app.logger.warning(
+            "c6 checkout PAID: referencia=%s não é compra nossa; ignorado.", _limpo(ref))
+        return "desconhecido", 200
+
+    provider = _c6_provider()
+    if provider is None or not charge.provider_ref:
+        current_app.logger.error(
+            "c6 checkout PAID da charge %s, mas sem provider C6 ativo ou sem id do "
+            "checkout guardado; conciliar manualmente.", charge.id)
+        return "ignored", 200
+    if info.get("id") != charge.provider_ref:
+        current_app.logger.warning(
+            "c6 checkout PAID: id do corpo (%s) difere do guardado na charge %s; "
+            "consultando o guardado.", _limpo(info.get("id")), charge.id)
+
+    try:
+        checkout = provider.get_checkout(charge.provider_ref)
+    except C6Error as exc:
+        st = getattr(exc, "status", None)
+        if st is not None and 400 <= st < 500 and st not in (408, 429):
+            # Reenviar não resolve 4xx (ex.: credencial sem checkout.read) e
+            # 503 eterno faria o C6 desligar o webhook.
+            current_app.logger.error(
+                "c6 checkout: GET /v1/checkouts/%s devolveu HTTP %s (charge %s); "
+                "conciliar manualmente.", charge.provider_ref, st, charge.id)
+            return "erro-permanente", 200
+        db.session.rollback()
+        current_app.logger.exception(
+            "c6 checkout: falha ao consultar a charge %s: %s", charge.id, exc)
+        return "deferred", 503
+    except Exception as exc:  # noqa: BLE001
+        db.session.rollback()
+        current_app.logger.exception(
+            "c6 checkout: falha ao consultar a charge %s: %s", charge.id, exc)
+        return "deferred", 503
+
+    try:
+        resultado = purchase_svc.sync_checkout(charge, checkout)
+    except Exception as exc:  # noqa: BLE001
+        # Mesmo motivo do Pix: sessão suja persistiria estado parcial.
+        db.session.rollback()
+        current_app.logger.exception(
+            "c6 checkout: falha ao creditar a charge %s: %s", charge.id, exc)
+        return "deferred", 503
+    if resultado == "credited":
+        current_app.logger.info("compra %s (cartão C6) creditada via webhook", charge.id)
+    return resultado, 200

@@ -541,6 +541,7 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
     from .api.pix import bp as pix_bp
     from .api.asaas_webhook import bp as asaas_webhook_bp
     from .api.c6_webhook import bp as c6_webhook_bp
+    from .api.c6_checkout import bp as c6_checkout_bp
     from .api.stripe_webhook import bp as stripe_webhook_bp
     from .api.transfer import bp as transfer_bp
     from .api.redeem import bp as redeem_bp
@@ -567,6 +568,7 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
     # Webhook de transferências do Asaas (PIX de saída/resgate)
     app.register_blueprint(asaas_webhook_bp, url_prefix="/payouts/asaas")
     app.register_blueprint(c6_webhook_bp, url_prefix="/payments/c6")
+    app.register_blueprint(c6_checkout_bp, url_prefix="/payments/c6")
     # Webhook do Stripe (cartão internacional) — corpo ASSINADO
     app.register_blueprint(stripe_webhook_bp, url_prefix="/payments/stripe")
     app.register_blueprint(transfer_bp, url_prefix="/transfer")
@@ -667,6 +669,18 @@ def create_app(config: type[Config] | None = None, pix_provider=None) -> Flask:
         except Exception as e:
             ok = False
             checks["db"] = f"FAIL: {type(e).__name__}"
+
+        # 1b) Schema: lê todas as colunas mapeadas de pix_charges (LIMIT 0).
+        # Código novo sem a migration aplicada derruba toda leitura de
+        # cobrança; aqui o deploy fica sem tráfego em vez de quebrar o PIX.
+        try:
+            from .models import PixCharge
+            db.session.query(PixCharge).limit(0).all()
+            checks["schema"] = "ok"
+        except Exception as e:
+            db.session.rollback()
+            ok = False
+            checks["schema"] = f"FAIL: {type(e).__name__} (migration pendente?)"
 
         # 2) Rotas críticas (verifica blueprints carregados)
         rules = {str(r) for r in app.url_map.iter_rules()}

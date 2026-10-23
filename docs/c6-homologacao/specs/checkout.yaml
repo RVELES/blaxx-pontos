@@ -1,0 +1,1315 @@
+openapi: 3.0.3
+info:
+  title: "Checkout C6 Bank"
+  version: 1.2.0
+  description: |-
+    ## O que esta API permite?
+
+    Nosso serviço que permite a integração entre aplicativos e sistemas de comércio eletrônico. Ela permite a criação, consulta e cancelamento de checkouts, além de oferecer suporte a diversos métodos de pagamento.
+
+    --------------
+
+    ## Objetivo
+
+    O objetivo desta API é fornecer uma interface consistente e bem documentada para que desenvolvedores possam integrar seus aplicativos com os meios de pagamento do C6 Bank.
+
+    ### Fluxo de checkout padrão:
+
+    **Criar Checkout:**
+      - Permite criar um novo checkout e definir as formas de pagamento aceitas.
+      - Deve incluir informações como valor, pagador, data de expiração e métodos de pagamento aceitos.
+      - Caso os dados do pagador não sejam informados, eles serão solicitados em tempo de transação, diretamente no checkout.
+      - A criação de um checkout retorna o ID desse checkout e uma URL. O ID é o identificador que você pode usar para consultar, cancelar e capturar o checkout, e a URL é para onde o cliente pagador deve ser direcionado para usar o checkout.
+
+    **Consultar Checkout:**
+      - Permite consultar detalhes de um checkout através do ID recebido na criação do checkout.
+      - Retorna informações sobre o valor, status do pagamento e outras relevantes.
+      - É através desta API que você pode identificar se o pagamento foi realizado com sucesso.
+
+    **Capturar Checkout:**
+      (DISPONÍVEL EM BREVE)
+      - Permite capturar um checkout.
+      - Por padrão, checkouts são criados com captura automática, mas é possível desativar essa funcionalidade (`payment.card.capture` = false). Nesse caso, este método deve ser usado para capturar a transação.
+      - Você pode usar a captura manual quando sua operação necessitar de validação adicional antes da finalização do pedido.
+      - Um caso de uso comum é a validação de estoque pós-compra. Muitas lojas virtuais realizam a venda ao cliente (com captura manual), e, se a transação for autorizada, checam manualmente o estoque e, caso confirmada a disponibilidade, capturam a transação.
+
+    **Cancelar Checkout:**
+      - Permite cancelar um checkout.
+      - Checkouts ainda não finalizados (não pagos pelo pagador) são abortados, enquanto checkouts já pagos são extornados (sempre que a forma de pagamento permitir).
+      - Atualiza o status do checkout para "CANCELLED".
+
+    **Tokenizar Cartões:**
+      - Permite que você receba um token referente a um cartão (`payment.card.save_card` = true) usado para pagamento de um checkout.
+      - Um token é retornado sempre que solicitado e que o pagamento do checkout for realizado com sucesso.
+      - Quando `save_card` for enviado com true, o único método de pagamento disponível para a tokenização será o **Cartão de Crédito**. <br> Carteiras Digitais, Pix e Cartão de Débito não suportam `save_card` = true, com isso, esses métodos de pagamento não serão exibidos como opções de pagamento no checkout.
+    **Transação com Cartão Tokenizado:**
+      - Você pode usar tokens previamente obtidos para realizar novas autorizações sem que o cliente tenha que digitar novamente os dados do cartão. Isso também pode ser usado para transações recorrentes, como assinaturas ou renovações periódicas.
+
+    --------------
+
+    ### Fluxo de checkout transparente:
+
+    **Gerar chave pública**:
+      - Permite gerar uma chave pública para o uso do checkout transparente.
+      - As chaves públicas possuem validade máxima de 10 minutos (recomenda-se renovação periódica).
+
+    --------------
+
+    ### Suporte a Métodos de Pagamento
+
+    Um checkout gerado por esta API suporta os seguintes métodos de pagamento:
+
+      - Carteiras Digitais
+      - Cartões (Crédito/Débito)
+      - Pix
+
+    <br>
+
+    ________________
+
+    ## **Resumo Técnico da API**
+
+    Operações disponíveis para a API de Checkout:
+
+    | Operações                                                                                            |
+    |:----------------------------------------------------------------------------------------------------:|
+    | [Criar um Checkout](checkout#tag/api-de-checkout/post/)                                              |
+    | [Autorizar uma transação usando um cartão tokenizado](checkout#tag/api-de-checkout/post/authorize)   |
+    | [Consultar um Checkout](checkout#tag/api-de-checkout/get/{id})                                       |
+    | [Capturar um Checkout](checkout#tag/api-de-checkout/put/{id}/capture)                                |
+    | [Cancelar um Checkout](checkout#tag/api-de-checkout/put/{id}/cancel)                                 |
+
+    Operações disponíveis para a API de Checkout Transparente:
+
+    | Operações                                                                                            |
+    |:----------------------------------------------------------------------------------------------------:|
+    | [Documentação do SDK](checkout#tag/checkout-transparente/get/sdk-doc)                                |
+    | [Gerar chave pública](checkout#tag/checkout-transparente/get/generate/public-key)                                |
+
+    Endereço dos ambientes:
+
+    | Ambiente | Host                                 | Path            |
+    |:--------:|------------------------------------- |-----------------|
+    | Sandbox  | https://baas-api-sandbox.c6bank.info | /v1/checkouts/ |
+    | Produção | https://baas-api.c6bank.info         | /v1/checkouts/ |
+servers:
+  - url: https://baas-api-sandbox.c6bank.info/v1/checkouts/
+    description: Ambiente sandbox
+  - url: https://baas-api.c6bank.info/v1/checkouts/
+    description: Ambiente produtivo
+
+tags:
+  - name: API de Checkout
+    description: Operações de checkout
+  - name: Checkout Transparente
+    description: Operações relacionadas ao checkout transparente
+paths:
+  /:
+    post:
+      tags:
+        - API de Checkout
+      summary: Criar um checkout
+      description: Cada checkout pode receber até 3 tentativas de pagamento. A cada tentativa de pagamento pelo cliente, você receberá uma notificação, caso tenha cadastrado um webhook correspondente.
+      operationId: createCheckout
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/PartnerSoftwareName'
+        - $ref: '#/components/parameters/PartnerSoftwareVersion'
+      requestBody:
+        description: Informações necessárias para criar um checkout. Importante reforçar que, para uma autorização direta, o cartão tokenizado (`payment.card.card_info.token`) sempre deve ser enviado.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/checkout"
+        required: true
+      responses:
+        "201":
+          description: Checkout criado com sucesso.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  url:
+                    type: string
+        "4xx":
+          description: Para descrição de erros visite a <a href="https://developers.c6bank.com.br/apis/errors">documentação correspondente</a>.
+        "5xx":
+          description: Para descrição de erros visite a <a href="https://developers.c6bank.com.br/apis/errors">documentação correspondente</a>.
+  /authorize:
+    post:
+      tags:
+        - API de Checkout
+      summary: Autorizar um checkout
+      description: Permite a autorização automática e síncrona de um checkout, utilizando um token de cartão obtido em uma autorização anterior.
+      operationId: authorize
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/PartnerSoftwareName'
+        - $ref: '#/components/parameters/PartnerSoftwareVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/authorizeRequest"
+      responses:
+        "200":
+          description: Checkout processado. Você deve avaliar o conteúdo do objeto para verificar o status da autorização.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/authorizeResponse"
+        "4xx":
+          description: Para descrição de erros visite a <a href="https://developers.c6bank.com.br/apis/errors">documentação correspondente</a>.
+        "5xx":
+          description: Para descrição de erros visite a <a href="https://developers.c6bank.com.br/apis/errors">documentação correspondente</a>.
+  /{id}:
+    parameters:
+      - $ref: '#/components/parameters/Authorization'
+      - $ref: "#/components/parameters/PartnerSoftwareName"
+      - $ref: "#/components/parameters/PartnerSoftwareVersion"
+      - $ref: "#/components/parameters/CheckoutId"
+    get:
+      tags:
+        - API de Checkout
+      summary: Consultar um checkout
+      description: Obtém, de maneira síncrona, informações de um checkout a partir de um ID.
+      operationId: getCheckout
+      responses:
+        "200":
+          description: Checkout consultado com sucesso.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/checkout"
+                  - type: object
+                    properties:
+                      payment:
+                        type: object
+                        properties:
+                          card:
+                            type: object
+                            properties:
+                              authenticate:
+                                $ref: "#/components/schemas/authenticate"
+                              capture:
+                                $ref: "#/components/schemas/capture"
+                              capturedAmount:
+                                $ref: "#/components/schemas/captured_amount"
+                              interest_type:
+                                $ref: "#/components/schemas/interest_type"
+                              installments:
+                                $ref: "#/components/schemas/installments"
+                              authorization_code:
+                                $ref: "#/components/schemas/authorization_code"
+                              message:
+                                $ref: "#/components/schemas/message"
+                              return_code:
+                                $ref: "#/components/schemas/return_code"
+                              recurrent:
+                                $ref: "#/components/schemas/recurrent"
+                              save_card:
+                                $ref: "#/components/schemas/save_card"
+                              card_info:
+                                $ref: "#/components/schemas/card_info"
+                              soft_descriptor:
+                                $ref: "#/components/schemas/soft_descriptor"
+                              type:
+                                $ref: "#/components/schemas/type"
+                          pix:
+                            $ref: "#/components/schemas/pix"
+        "4xx":
+          description: Para descrição de erros visite a <a href="https://developers.c6bank.com.br/apis/errors">documentação correspondente</a>.
+        "5xx":
+          description: Para descrição de erros visite a <a href="https://developers.c6bank.com.br/apis/errors">documentação correspondente</a>.
+  /{id}/capture:
+    put:
+      tags:
+        - API de Checkout
+      summary: Capturar um checkout
+      description: Captura um Checkout a partir de um ID (DISPONÍVEL EM BREVE).
+      operationId: captureCheckout
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: "#/components/parameters/PartnerSoftwareName"
+        - $ref: "#/components/parameters/PartnerSoftwareVersion"
+        - $ref: "#/components/parameters/CheckoutId"
+      responses:
+        "204":
+          description: Checkout capturado com sucesso.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/checkout"
+                  - type: object
+                    properties:
+                      card_info:
+                        $ref: '#/components/schemas/card_info'
+        "4xx":
+          description: Para descrição de erros visite a <a href="https://developers.c6bank.com.br/apis/errors">documentação correspondente</a>.
+        "5xx":
+          description: Para descrição de erros visite a <a href="https://developers.c6bank.com.br/apis/errors">documentação correspondente</a>.
+  /{id}/cancel:
+    put:
+      tags:
+        - API de Checkout
+      summary: Cancelar um checkout
+      description: Cancela um checkout a partir de um ID. Checkouts não finalizados (não pagos pelo pagador) são abortados, enquanto checkouts já pagos são estornados (sempre que a forma de pagamento permitir).
+      operationId: cancelCheckout
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: "#/components/parameters/PartnerSoftwareName"
+        - $ref: "#/components/parameters/PartnerSoftwareVersion"
+        - $ref: "#/components/parameters/CheckoutId"
+      responses:
+        "204":
+          description: Checkout cancelado com sucesso.
+        "4xx":
+          description: Para descrição de erros visite a <a href="https://developers.c6bank.com.br/apis/errors">documentação correspondente</a>.
+        "5xx":
+          description: Para descrição de erros visite a <a href="https://developers.c6bank.com.br/apis/errors">documentação correspondente</a>.
+  /sdk-doc:
+    get:
+      tags:
+        - "Checkout Transparente"
+      summary: Documentação do SDK do Checkout Transparente
+      description: |-
+        ## Checkout Transparente
+
+        O checkout transparente é um modelo de pagamento que permite o processamento das transações diretamente nos servidores da aplicação, sem a necessidade de redirecionar o cliente para um site externo.
+
+        <br>
+
+        ________________
+
+        ## O que o produto permite e qual o seu objetivo?
+
+        Nosso SDK permite a criptografia de dados sensíveis de cartão no frontend utilizando a Web Crypto API, garantindo segurança e compatibilidade com navegadores modernos.
+
+        O objetivo do SDK é gerar um card hash (ou hash de cartão), um código alfanumérico único e criptografado, criado a partir dos dados
+        sensíveis do cartão de crédito, como número, CVV e data de validade, durante uma transação online. A ação garante a proteção dessas
+        informações antes que qualquer dado seja enviado ao backend ou ao processador de pagamentos.
+
+        O `card hash` é gerado diretamente no navegador usando a Web Crypto API e as informações geradas na requisição de <a href="checkout#tag/checkout-transparente/get/generate/public-key">Gerar chave pública</a>
+
+        Com isso, as informações reais do cartão nunca são expostas, trafegadas ou armazenadas de forma direta.
+
+        A abordagem tem como objetivo aumentar significativamente o nível de segurança, reduzir o risco de vazamento de informações sensíveis e contribuir para a conformidade com padrões de segurança.
+
+        **Exemplo Prático**
+
+        * Sem Checkout Transparente: O cliente passa por todo o processo de pagamento e, ao clicar em “Pagar”, é redirecionado para um ambiente externo do provedor de pagamentos ou do banco. Nesse ambiente, ele informa os dados do cartão, realiza as etapas de autenticação necessárias e, após a finalização da transação, é redirecionado de volta para o site da loja.
+        * Com Checkout Transparente: O cliente informa os dados do cartão diretamente no domínio da loja (por exemplo: `minhaloja.com.br/checkout`). Esses dados são criptografados no próprio front-end, gerando um card hash, que é então enviado ao backend ou ao processador de pagamentos. O cliente finaliza a ação e recebe o retorno da transação na mesma interface, sem expor os dados sensíveis do cartão.
+
+        <br>
+
+        ________________
+
+        ## Observações
+
+        - O SDK não loga dados sensíveis (número, CVV, etc.)
+        - O SDK funciona em navegadores modernos que suportem `window.crypto.subtle`.
+        - É obrigatório inicializar o SDK utilizando o método `init` antes de qualquer outra operação.
+
+        <br>
+
+        ________________
+
+        ## Pré-Requisitos
+
+        - O funcionamento do SDK depende da utilização de uma chave pública e uma chave de sessão geradas na requisição de <a href="checkout#tag/checkout-transparente/get/generate/public-key">Gerar chave pública</a>, que devem ser informadas no método `init`.
+        - Navegadores modernos com suporte à [Web Crypto API](https://developer.mozilla.org/pt-BR/docs/Web/API/Web_Crypto_API)
+
+        <br>
+
+        ________________
+
+        ## INSTALAÇÃO
+
+        A instalação do SDK está indisponível no momento. Esta documentação serve apenas como referência para o funcionamento do produto.
+
+        <br>
+
+        ________________
+
+        ## Funcionalidades do SDK
+
+        ```javascript
+        init({ env, transactionId })
+        ```
+
+        Método que inicializa o SDK + antifraude.
+
+        env: homolog | prod.
+
+        ________________
+
+        ```javascript
+        createClient({ publicKey, sessionKey })
+        ```
+
+        Método responsável por criar uma instância de client, permitindo a geração segura do hash do cartão na sessão atual.
+
+        ________________
+
+        ```javascript
+        client.generateCardHash(card)
+        ```
+
+        Método que gera um card hash de forma segura.
+
+        ________________
+
+        ```javascript
+        setDebugMode(flag: boolean)
+        ```
+
+        Método que ativa/desativa os logs do SDK.
+
+        ________________
+
+        ```javascript
+        setLogger(fn)
+        ```
+
+        Método que define um logger customizado: (level, message, context) => void.
+
+        Logger customizado: (level, message, context) => void.
+
+        ________________
+
+        ## Instalação e Uso do SDK
+
+        **Instalação**
+
+        Inclua o bundle gerado no seu HTML na tag <script>. O SDK estará disponível como C6PaySDK no escopo global do navegador.
+
+        Você pode instalar o SDK das seguintes formas:
+
+        * Carregando dinamicamente via script:
+
+        ```javascript
+        var script = document.createElement('script')
+        script.src = 'C6PaySDK.js'
+        script.async = true
+        document.head.appendChild(script)
+        ```
+
+        * Importando no HTML:
+
+        ```html
+        <script src="" async></script>
+        ```
+
+        ________________
+
+        **Uso**
+
+        Inicialize o SDK logo no início do fluxo
+
+        ```javascript
+        // (Opcional) Ativar logs do SDK no console:
+        window.C6PaySDK.setDebugMode(true)
+        // (Opcional) Usar seu próprio logger (sem dados sensíveis):
+        window.C6PaySDK.setLogger(function(level, message, context) {
+          console.log(`[C6PaySDK] [${level}] ${message}`, context || '')
+          // Ex.: if (context?.event === C6PaySDK.LogEvent.INVALID_PUBLIC_KEY_FORMAT) { ... }
+        })
+        // Inicialização: chame assim que possível no seu fluxo
+        const initSDK = async () => {
+          try {
+            await window.C6PaySDK.init({
+              env: 'homolog',            // 'homolog' ou 'prod'
+              transactionId: 'txn_123',  // ID da transação do seu fluxo
+            })
+          } catch (err) {
+            console.error('Erro ao inicializar C6PaySDK:', err)
+            // Reaja conforme seu fluxo: bloqueie passos seguintes, mostre fallback, etc.
+          }
+        }
+        initSDK()
+        ```
+
+        Colete e valide os dados do cartão no front-end
+
+        ```javascript
+        const card = {
+          number: '4111111111111111',
+          holderName: 'JOAO DA SILVA',
+          expirationMonth: '12',  // MM
+          expirationYear: '2025', // AAAA
+          cvv: '123',
+          brand: 'VISA',  // Ex.: VISA, MASTERCARD...
+        }
+        ```
+
+        Crie o client e gere o Card Hash
+
+        ```javascript
+          // Reaproveite o mesmo "session" criado no back (veja Pré-requisitos)
+          const session = {
+            publicKey: '-----BEGIN PUBLIC KEY-----...-----END PUBLIC KEY-----',
+            sessionKey: 'sess_abc123',
+          }
+
+          const client = window.C6PaySDK.createClient(session)
+
+          client.generateCardHash(card)
+            .then(function(cardHash) {
+              console.log('Card Hash:', cardHash)
+
+              // 👉 Envie SOMENTE o cardHash + transactionId + sessionKey para o seu backend
+              // fetch('/pagamentos', { method: 'POST', body: JSON.stringify({ cardHash, transactionId: 'txn_123', sessionKey: session.sessionKey }) })
+            })
+            .catch(function(error) {
+              // Tratamento essencial (sem expor dados)
+              if (error.message.includes('publicKey ausente')) {
+                alert('Chave pública não informada ou inválida.')
+              } else if (error.message.includes('sessionKey ausente')) {
+                alert('SessionKey não informada ou inválida.')
+              } else if (error.message.includes('Campo obrigatório ausente')) {
+                alert('Preencha todos os campos do cartão corretamente.')
+              } else if (error.message.includes('Web Crypto API não suportada')) {
+                alert('Seu navegador não suporta criptografia segura.')
+              } else {
+                alert(error.message || 'Erro ao gerar o card hash')
+              }
+            })
+        ```
+
+        Envie para o seu backend e finalize o pagamento
+
+        No seu servidor, você vai receber:
+
+        * cardHash (gerado no front-end)
+        <br>
+        * transactionId (o mesmo que você definiu no init)
+        <br>
+
+        **Importante**: não envie number, cvv ou demais dados do cartão ao backend, apenas o card hash.
+
+        Seu backend então compõe o payload do pagamento com esse cardHash e segue o fluxo com a API de pagamentos (conforme sua integração do lado servidor).
+
+        <br>
+
+        ________________
+
+        ## Boas práticas e troubleshooting
+
+        - Inicialize o SDK com a função: `init({ env, transactionId })` antes de gerar o hash.
+        - Valide campos de cartão localmente para evitar tentativas com dados faltantes.
+        - Use setLogger para coletar eventos técnicos (sem dados sensíveis) e exibir mensagens amigáveis.
+        - Reutilize o sessionKey corretamente dentro da mesma sessão.
+
+        - Evite enviar os dados do cartão em aberto ao backend (use sempre o cardHash).
+        - Não se esqueça de definir `env` e `transactionId` no `init`.
+
+        <br>
+
+        ________________
+
+        ## Exemplo de implementação
+
+        Exemplo de Uso via Tag <script>
+
+        ```html
+        <script src="C6PaySDK.js"></script>
+        <script>
+          // Exemplo de uso global
+          const session = {
+            publicKey: '-----BEGIN PUBLIC KEY-----...-----END PUBLIC KEY-----',
+            sessionKey: 'sess_abc123',
+          };
+          const card = {
+            number: '4111111111111111',
+            holderName: 'JOAO DA SILVA',
+            expirationMonth: '12',
+            expirationYear: '2025',
+            cvv: '123',
+            brand: 'VISA',
+          };
+
+          // Ativa logs internos no console
+          C6PaySDK.setDebugMode(true);
+
+          // Define logger customizado
+          C6PaySDK.setLogger(function(level, message, context) {
+            if (context && context.event === C6PaySDK.LogEvent.INVALID_PUBLIC_KEY_FORMAT) {
+              // Trate logs de chave pública inválida
+            }
+            console.log(`[C6PaySDK] logger [${level}] ${message}`, context || '');
+          });
+
+
+          // Na página inicial do seu fluxo, inicialize o SDK dessa maneira:
+
+          const initSDK = async () => {
+            try {
+              await window.C6PaySDK.init({
+                env: 'homolog' // campo obrigatório - string - valores aceitos: homolog ou prod,
+                transactionId, // campo obrigatório - string - "id relacionado com a transação que será enviado posteriormente no payload do pagamento"
+              })
+            } catch (err) {
+              console.error('Erro ao inicializar C6PaySDK:', err)
+            }
+          }
+
+          initSDK()
+
+          // Esse fluxo de execução é obrigatório, pois está diretamente relacionado ao funcionamento do antifraude utilizado pelo SDK.
+
+
+          // Segurança: Nenhum dado sensível do cartão (número, CVV, etc.) é enviado ou exposto nos logs gerados pelo SDK, seja no modo debug ou via logger customizado.
+
+          // Gera o hash do cartão then/catch
+
+            const client = window.C6PaySDK.createClient(session)
+
+            client.generateCardHash(card)
+            .then(function(cardHash) {
+              console.log('Card Hash:', cardHash);
+            })
+            .catch(function(error) {
+              alert(error.message || 'Erro ao gerar o card hash');
+            });
+
+          // OU
+
+          // Exemplo usando async/await e try/catch
+
+            const client = window.C6PaySDK.createClient(session)
+            async function gerarCardHashAsync() {
+              try {
+                const cardHash = await client.generateCardHashcard(card);
+                console.log('Card Hash:', cardHash);
+              } catch (error) {
+                alert(error.message || 'Erro ao gerar o card hash');
+              }
+            }
+            // Para usar:
+            gerarCardHashAsync();
+        </script>
+        ```
+
+        Após a geração do card hash, o envie no campo `card_hash` do payload da requisição /authorize no seu backend (`payment -> card -> card_info -> card_hash`).
+
+        <br>
+
+        _______________
+
+        ## Estrutura dos Objetos
+
+        * Session
+
+        | Campo | Tipo | Obrigatório | Descrição |
+        |:-----:|:----:|:----------:|:---------|
+        | publicKey | string | Sim | Chave pública PEM |
+        | sessionKey | string | Sim | Identificador da sessão |
+
+        * Card
+
+        | Campo | Tipo | Obrigatório | Descrição |
+        |:-----:|:----:|:----------:|:---------|
+        | number | string | Sim | Número do cartão |
+        | holderName | string | Sim | Nome do titular do cartão |
+        | expirationMonth | string | Sim | Mês de expiração do cartão |
+        | expirationYear | string | Sim | Ano de expiração do cartão |
+        | cvv | string | Sim | Código de segurança do cartão |
+        | brand | string | Sim | Bandeira do cartão |
+
+        <br>
+
+        _______________
+
+        ## Tratamento de erros
+
+        Importante: Todas as funções assíncronas do SDK podem lançar exceções, especialmente em casos de:
+
+        * Falha ou ausência de suporte à Web Crypto API no navegador
+        * Chave pública inválida
+        * Dados de cartão inválidos
+        * Falhas inesperadas de criptografia
+
+        **Exemplo de Manipulação de Erros**
+
+        ```javascript
+        // Exemplo com then/catch
+        const client = window.C6PaySDK.createClient(session)
+        client.generateCardHash(card)
+          .then(function(cardHash) {
+            // Sucesso!
+            console.log('Hash gerado:', cardHash);
+          })
+          .catch(function(error) {
+            // Manipulação de erros comuns
+            if (error.message.includes('publicKey ausente')) {
+              alert('Chave pública não informada ou inválida.');
+            } else if (error.message.includes('sessionKey ausente')) {
+              alert('SessionKey não informada ou inválida.');
+            } else if (error.message.includes('Campo obrigatório ausente')) {
+              alert('Preencha todos os campos do cartão corretamente.');
+            } else if (error.message.includes('Web Crypto API não suportada')) {
+              alert('Seu navegador não suporta criptografia segura.');
+            } else {
+              // Erro inesperado
+              alert(error.message || 'Erro ao gerar o card hash');
+            }
+          });
+        ```
+
+        ```javascript
+        // Exemplo com async/await e try/catch
+        async function gerarHash() {
+          try {
+            const client = window.C6PaySDK.createClient(session)
+            const cardHash = await client.generateCardHash(card);
+            console.log('Hash gerado:', cardHash);
+          } catch (error) {
+            if (error.message.includes('publicKey ausente')) {
+              alert('Chave pública não informada ou inválida.');
+            } else if (error.message.includes('sessionKey ausente')) {
+              alert('SessionKey não informada ou inválida.');
+            } else if (error.message.includes('Campo obrigatório ausente')) {
+              alert('Preencha todos os campos do cartão corretamente.');
+            } else if (error.message.includes('Web Crypto API não suportada')) {
+              alert('Seu navegador não suporta criptografia segura.');
+            } else {
+              alert(error.message || 'Erro ao gerar o card hash');
+            }
+          }
+        }
+        // Para usar:
+        // gerarHash();
+        ```
+
+        Dica: Você pode usar o logger customizado (setLogger) para capturar detalhes técnicos dos erros e exibir mensagens mais amigáveis para o usuário final.
+
+        <br>
+
+        _______________
+
+        ## Checagem de Suporte à Web Crypto API antes de carregar o SDK dinamicamente
+
+        Se desejar garantir que o SDK só será carregado em navegadores compatíveis, faça a checagem antes de injetar o script:
+
+        ```javascript
+        <script>
+          if (window.crypto && window.crypto.subtle) {
+            var script = document.createElement('script');
+            script.src = 'C6PaySDK.js';
+            script.async = true;
+            document.head.appendChild(script);
+          } else {
+            alert('Seu navegador não suporta a Web Crypto API. O SDK não será carregado.');
+          }
+        </script>
+        ```
+
+        Nota: O SDK já faz essa checagem internamente, disparando um log de erro, caso ativado o modo debug C6PaySDK.setDebugMode(true)
+
+
+      responses:
+        "200":
+          description: Documentação retornada com sucesso.
+          content:
+            text/markdown:
+              schema:
+                type: string
+
+  /generate/public-key:
+    get:
+      tags:
+        - "Checkout Transparente"
+      summary: Gerar chave pública.
+      description: |-
+        Gera uma chave pública para o checkout.
+
+        - Permite gerar uma chave pública para o uso do checkout transparente.
+
+        - Necessário permissão para uso da requisição
+
+        - As chaves públicas possuem validade máxima de 10 minutos (recomenda-se renovação periódica).
+      operationId: generatePublicKey
+      parameters:
+        - name: ttl
+          in: query
+          description: Tempo de expiração da chave pública (em minutos, entre 1 a 10). Caso não seja enviado, por padrão a API definirá o tempo de expiração em 10 minutos.
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+            default: 10
+        - $ref: "#/components/parameters/Authorization"
+        - $ref: "#/components/parameters/PartnerSoftwareName"
+        - $ref: "#/components/parameters/PartnerSoftwareVersion"
+      responses:
+        "200":
+          description: Chave pública gerada com sucesso.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/public_key_response"
+        "4xx":
+          description: Para descrição de erros visite a <a href="https://developers.c6bank.com.br/apis/errors">documentação correspondente</a>.
+        "5xx":
+          description: Para descrição de erros visite a <a href="https://developers.c6bank.com.br/apis/errors">documentação correspondente</a>.
+components:
+  parameters:
+    Authorization:
+      in: header
+      name: Authorization
+      description: Token de acesso para autenticação. Deve ser enviado no formato "Bearer {{your_access_token}}".
+      schema:
+        type: string
+      required: true
+      example: "Bearer {{your_access_token}}"
+    CheckoutId:
+      in: path
+      name: id
+      description: Utilizado como identificador forte do checkout. Também é utilizado em operações de consulta, cancelamento, alteração, etc. É a principal chave da transação para o ambiente C6 Bank.
+      schema:
+        type: string
+      required: true
+      example: "5c4e39aa-fb33-42bd-bce3-2b7525a51329"
+    PartnerSoftwareName:
+      in: header
+      name: partner-software-name
+      description: Nome do software do parceiro
+      schema:
+        type: string
+      required: false
+      example: "Super PDV"
+    PartnerSoftwareVersion:
+      in: header
+      name: partner-software-version
+      description: Versão do software do parceiro
+      schema:
+        type: string
+      required: false
+      example: "1.0.0"
+  schemas:
+    address:
+      type: object
+      description: Objeto que agrupa os dados do endereço do cliente pagador (sacado). Obrigatório para a autorização de transações via /authorize.
+      required:
+        - city
+        - number
+        - state
+        - street
+        - zip_code
+      properties:
+        street:
+          type: string
+          example: Av. Nove de Julho
+          maxLength: 200
+          description: Nome da rua ou logradouro do endereço do cliente pagador. Aceita até 200 caracteres.
+        number:
+          type: number
+          example: 123
+          description: Número do endereço do cliente pagador. A soma de caracteres deste campo com o campo "street" não pode ultrapassar 40 posições.
+        complement:
+          type: string
+          example: Complemento
+          maxLength: 150
+          description: Informação adicional do endereço (apartamento, bloco, sala, etc.). Aceita até 150 caracteres. Campo opcional.
+        city:
+          type: string
+          example: Rio de Janeiro
+          maxLength: 60
+          description: Nome da cidade do endereço do cliente pagador. Aceita até 60 caracteres.
+        state:
+          type: string
+          example: RJ
+          maxLength: 2
+          pattern: "[A-Z]{2}"
+          description: Sigla da UF (estado) do endereço do cliente pagador. Deve conter exatamente 2 letras maiúsculas (ex. SP, RJ, MG).
+        zip_code:
+          type: string
+          example: "05093000"
+          minLength: 8
+          maxLength: 8
+          pattern: "\\d{8}"
+          description: CEP do endereço do cliente pagador. Deve conter exatamente 8 dígitos numéricos, sem máscara (sem hífen).
+    amount:
+      type: number
+      minimum: 5
+      maximum: 500000
+      example: 123.45
+      description: Valor total do checkout em reais (R$). Deve ser um valor entre R$ 5,00 e R$ 500.000,00. Utilize ponto como separador decimal (ex. 123.45 para R$ 123,45).
+    authenticate:
+      type: string
+      enum:
+        - REQUIRED
+        - OPTIONAL
+        - NOT_REQUIRED
+      default: "NOT_REQUIRED"
+      description: Define se a transação deve passar por autenticação do emissor do cartão (3DS). REQUIRED força a autenticação (transação falha se não autenticar). OPTIONAL tenta autenticar, mas prossegue sem autenticação caso não seja possível. NOT_REQUIRED (padrão) não solicita autenticação.
+    authorization_code:
+      type: string
+      example: 819922
+      description: Código de autorização retornado pela bandeira/emissor do cartão após aprovação da transação. Utilizado para identificação e rastreabilidade junto ao adquirente.
+      readOnly: true
+    authorizeRequest:
+      type: object
+      required:
+        - payer
+        - payment
+        - external_reference_id
+        - amount
+        - address
+      properties:
+        amount:
+          $ref: "#/components/schemas/amount"
+        description:
+          $ref: "#/components/schemas/description"
+        external_reference_id:
+          $ref: "#/components/schemas/external_reference_id"
+        payment_date_time:
+          $ref: "#/components/schemas/payment_date_time"
+        id:
+          $ref: "#/components/schemas/id"
+        payer:
+          type: object
+          description: É a parte pagadora do checkout. Aquele para quem o checkout se destina. Este nó é o nó raiz, que agrupa os dados do cliente pagador. Todos os elementos do pagador funcionam de maneira opcional na API, mas obrigatória para a transação. Isso significa que, se não forem enviados na chamada à API, serão solicitados ao pagador no momento da transação. Caso sejam enviados, o pagador não poderá editá-los.
+          required:
+            - name
+            - tax_id
+            - email
+            - phone_number
+          properties:
+            name:
+              type: string
+              example: José da Silva
+              maxLength: 100
+              pattern: "^(?!\\s*$).+"
+              description: É o nome (no caso de PF) ou a Razão Social (no caso de PJ).
+            tax_id:
+              type: string
+              example: "12345678910"
+              minLength: 11
+              maxLength: 14
+              description: É o documento fiscal (CPF em caso de PF e CNPJ em caso de PJ/MEI) do cliente pagador (sacado). Deve ser enviado sem máscara, respeitando os zeros à esquerda.
+            email:
+              type: string
+              format: email
+              example: pagador@email.com.br
+              maxLength: 150
+              pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+              description: Endereço de email do cliente pagador.
+            phone_number:
+              type: string
+              example: "11999999999"
+              maxLength: 11
+              pattern: "^[0-9]{1,11}$"
+              description: É o número de telefone do pagador.
+            address:
+              $ref: "#/components/schemas/address"
+        redirect_url:
+          $ref: "#/components/schemas/redirect_url"
+        status:
+          $ref: "#/components/schemas/status"
+        fraud_analysis:
+          $ref: "#/components/schemas/fraud_analysis"
+        payment:
+          type: object
+          properties:
+            card:
+              type: object
+              properties:
+                authenticate:
+                  $ref: "#/components/schemas/authenticate"
+                capture:
+                  $ref: "#/components/schemas/capture"
+                captured_amount:
+                  $ref: "#/components/schemas/captured_amount"
+                fixed_installments:
+                  $ref: "#/components/schemas/fixed_installments"
+                interest_type:
+                  $ref: "#/components/schemas/interest_type"
+                installments:
+                  $ref: "#/components/schemas/installments"
+                authorization_code:
+                  $ref: "#/components/schemas/authorization_code"
+                message:
+                  $ref: "#/components/schemas/message"
+                return_code:
+                  $ref: "#/components/schemas/return_code"
+                recurrent:
+                  $ref: "#/components/schemas/recurrent"
+                save_card:
+                  $ref: "#/components/schemas/save_card"
+                card_info:
+                  $ref: "#/components/schemas/card_info"
+                soft_descriptor:
+                  $ref: "#/components/schemas/soft_descriptor"
+                type:
+                  $ref: "#/components/schemas/type"
+              required:
+                - installments
+                - card_info
+            pix:
+              $ref: "#/components/schemas/pix"
+    authorizeResponse:
+      type: object
+      required:
+        - payer
+        - payment
+      properties:
+        amount:
+          $ref: "#/components/schemas/amount"
+        description:
+          $ref: "#/components/schemas/description"
+        external_reference_id:
+          $ref: "#/components/schemas/external_reference_id"
+        payment_date_time:
+          $ref: "#/components/schemas/payment_date_time"
+        id:
+          $ref: "#/components/schemas/id"
+        payer:
+          $ref: "#/components/schemas/payer"
+        redirect_url:
+          $ref: "#/components/schemas/redirect_url"
+        status:
+          $ref: "#/components/schemas/status"
+        fraud_analysis:
+          $ref: "#/components/schemas/fraud_analysis"
+        payment:
+          type: object
+          properties:
+            card:
+              type: object
+              properties:
+                authenticate:
+                  $ref: "#/components/schemas/authenticate"
+                capture:
+                  $ref: "#/components/schemas/capture"
+                captured_amount:
+                  $ref: "#/components/schemas/captured_amount"
+                fixed_installments:
+                  $ref: "#/components/schemas/fixed_installments"
+                interest_type:
+                  $ref: "#/components/schemas/interest_type"
+                installments:
+                  $ref: "#/components/schemas/installments"
+                authorization_code:
+                  $ref: "#/components/schemas/authorization_code"
+                message:
+                  $ref: "#/components/schemas/message"
+                return_code:
+                  $ref: "#/components/schemas/return_code"
+                recurrent:
+                  $ref: "#/components/schemas/recurrent"
+                save_card:
+                  $ref: "#/components/schemas/save_card"
+                card_info:
+                  $ref: "#/components/schemas/card_info_response"
+                soft_descriptor:
+                  $ref: "#/components/schemas/soft_descriptor"
+                type:
+                  $ref: "#/components/schemas/type"
+              required:
+                - installments
+                - card_info
+            pix:
+              $ref: "#/components/schemas/pix"
+          anyOf:
+            - required: [card]
+            - required: [pix]
+    card:
+      type: object
+      description: É o objeto base, que configura a cobrança em cartão. É neste objeto que você define a quantidade de parcelas, tipo de parcelamento, se o usuário pode selecionar a quantidade de parcelas ou se ela é fixa, etc.
+      required:
+        - type
+        - installments
+      properties:
+        authenticate:
+          $ref: "#/components/schemas/authenticate"
+        capture:
+          $ref: "#/components/schemas/capture"
+        captured_amount:
+          $ref: "#/components/schemas/captured_amount"
+        fixed_installments:
+          $ref: "#/components/schemas/fixed_installments"
+        installments:
+          $ref: "#/components/schemas/installments"
+        interest_type:
+          $ref: "#/components/schemas/interest_type"
+        recurrent:
+          $ref: "#/components/schemas/recurrent"
+        save_card:
+          $ref: "#/components/schemas/save_card"
+        soft_descriptor:
+          $ref: "#/components/schemas/soft_descriptor"
+        type:
+          $ref: "#/components/schemas/type"
+    card_info:
+      description: Dados do cartão para pagamento. Aceita um card_hash (gerado via SDK com chave pública) ou um token (obtido em transação anterior com save_card = true). Apenas um dos dois deve ser enviado.
+      oneOf:
+        - $ref: "#/components/schemas/card_hash"
+        - $ref: "#/components/schemas/token"
+      example: "b7453345cfc74670b7b...dTwIXNZ13v7lj0JDQloWNqqXoAHgzd2h/jjei8w7b9aOgl3CddOXYKRlq5lV4LCxc5N..CXNrjMLZH0MQAYEQ=="
+    card_info_response:
+      type: object
+      description: Dados do cartão retornados após o processamento da transação. Contém informações mascaradas do cartão utilizado no pagamento.
+      properties:
+        number:
+          type: string
+          example: 483430******6234
+          description: Número do cartão parcialmente mascarado (primeiros 6 e últimos 4 dígitos visíveis).
+        brand:
+          type: string
+          example: VISA
+          description: Bandeira do cartão utilizado na transação (ex. VISA, MASTERCARD, ELO).
+        holder_name:
+          type: string
+          example: Jane Doe
+          description: Nome do titular impresso no cartão.
+        token:
+          type: string
+          description: Token do cartão gerado quando save_card = true e a transação foi aprovada. Pode ser reutilizado em transações futuras sem necessidade de redigitar os dados do cartão.
+          example: "be4cbeb1-abb2-4913-8165-f86962143fa021"
+    pix:
+      type: object
+      required:
+        - key
+      properties:
+        key:
+          type: string
+          description: Chave Pix utilizada para gerar o QR Code do checkout. Atualmente apenas "AUTO" é suportado, onde o C6 Bank gera automaticamente uma chave aleatória para a transação.
+          example: "AUTO"
+          enum:
+            - AUTO
+    capture:
+      type: boolean
+      default: true
+      description: Define se a transação deve ser capturada automaticamente após a autorização (padrão = true). Se definido como false, a captura deve ser feita manualmente via endpoint /{id}/capture. Útil para fluxos que exigem validação adicional antes da finalização (ex. checagem de estoque).
+    captured_amount:
+      type: integer
+      description: Valor efetivamente capturado da transação (em centavos). Preenchido após a captura. Pode diferir do valor autorizado em caso de capturas parciais.
+      readOnly: true
+      example: "EM BREVE"
+    card_hash:
+      type: string
+      description: Hash criptografado dos dados do cartão, gerado no frontend via SDK usando a chave pública obtida no endpoint /generate/public-key. Deve ser enviado no campo card_info ao realizar uma autorização com checkout transparente.
+    checkout:
+      required:
+        - amount
+        - payment
+      type: object
+      properties:
+        amount:
+          $ref: "#/components/schemas/amount"
+        description:
+          $ref: "#/components/schemas/description"
+        emission_date_time:
+          $ref: "#/components/schemas/emission_date_time"
+        expiration_date_time:
+          $ref: "#/components/schemas/expiration_date_time"
+        external_reference_id:
+          $ref: "#/components/schemas/external_reference_id"
+        id:
+          $ref: "#/components/schemas/id"
+        payer:
+          $ref: "#/components/schemas/payer"
+        payment:
+          $ref: "#/components/schemas/payment"
+        redirect_url:
+          $ref: "#/components/schemas/redirect_url"
+        status:
+          $ref: "#/components/schemas/status"
+        url:
+          $ref: "#/components/schemas/url"
+    description:
+      type: string
+      example: Cobrança do produto A, para o cliente B, pedido 1234.
+      maxLength: 300
+      description: Texto livre para descrever o motivo ou contexto da transação. Aceita até 300 caracteres. Útil para identificação interna e conciliação (ex. nome do produto, número do pedido).
+    emission_date_time:
+      type: string
+      format: date-time
+      example: 2025-08-16T13:18:05.802Z
+      readOnly: true
+      description: Data e hora (ISO 8601) em que o checkout foi criado. Preenchido automaticamente pelo sistema.
+    expiration_date_time:
+      type: string
+      format: date-time
+      example: 2025-08-16T13:18:05.802Z
+      readOnly: true
+      description: Data e hora (ISO 8601) de expiração do checkout. Padrão de 7 dias a partir da criação caso não seja informado. Após este prazo, o checkout é automaticamente alterado para status 'EXPIRED' se não houver pagamento.
+    external_reference_id:
+      type: string
+      example: A123456789
+      pattern: "^[a-zA-Z0-9]{1,10}$"
+      minLength: 1
+      maxLength: 10
+      description: Identificador da transação no sistema do parceiro (seu sistema). Aceita de 1 a 10 caracteres alfanuméricos. Não pode ser repetido para um mesmo cliente. Caso não seja enviado, será gerado automaticamente. Retornado nas consultas para facilitar a conciliação.
+    fraud_analysis:
+      type: object
+      description: Resultado da análise antifraude da transação. Preenchido automaticamente após processamento. Indica se a transação foi avaliada e qual a recomendação do sistema antifraude.
+      readOnly: true
+      properties:
+        analyzed:
+          type: boolean
+          example: true
+          readOnly: true
+          description: Indica se a transação passou pela avaliação do sistema antifraude (true = avaliada, false = não avaliada).
+        recommendation:
+          type: string
+          description: Recomendação do sistema antifraude. APPROVE indica que a transação é considerada segura. DENY indica suspeita de fraude.
+          readOnly: true
+          enum:
+            - APPROVE
+            - DENY
+    fixed_installments:
+      type: boolean
+      default: true
+      description: Controla se a quantidade de parcelas é fixa ou selecionável pelo pagador. Se true (padrão), o pagador não pode alterar o número de parcelas definido em "installments". Se false, o pagador pode escolher entre 1 e o valor máximo definido em "installments".
+      writeOnly: true
+    id:
+      type: string
+      readOnly: true
+      example: "e4cf07fc-6b14-4477-a694-5053189726f7"
+      description: Identificador único do checkout (UUID) gerado pelo C6 Bank. Utilizado em todas as operações subsequentes (consulta, cancelamento, captura). É a chave principal da transação no ambiente C6 Bank.
+    interest_type:
+      type: string
+      enum:
+        - BY_SELLER
+        - BY_ISSUER
+      description: "Define quem assume os juros em transações parceladas (obrigatório quando installments > 1). BY_SELLER = Parcelado Loja (juros absorvidos pelo lojista). BY_ISSUER = Parcelado Emissor (juros repassados ao portador do cartão)."
+    installments:
+      type: integer
+      minimum: 1
+      maximum: 18
+      description: Quantidade máxima de parcelas permitidas para o checkout. Aceita valores entre 1 e 18. Se superior a 1, o campo "interest_type" deve ser obrigatoriamente informado.
+    message:
+      type: string
+      example: Operation Successful
+      description: Mensagem descritiva retornada pela bandeira/emissor após o processamento da transação. Indica o motivo da aprovação ou recusa.
+      readOnly: true
+    payer:
+      type: object
+      description: Objeto que agrupa os dados do cliente pagador (sacado). Na criação do checkout, os campos são opcionais — se não enviados, serão solicitados ao pagador no momento da transação. Na autorização via /authorize, os campos name, tax_id, email e phone_number são obrigatórios. Se informados na criação, o pagador não poderá editá-los no momento do pagamento.
+      properties:
+        name:
+          type: string
+          example: José da Silva
+          maxLength: 100
+          pattern: "^(?!\\s*$).+"
+          description: Nome completo (pessoa física) ou Razão Social (pessoa jurídica) do pagador. Aceita até 100 caracteres. Não pode ser apenas espaços em branco.
+        tax_id:
+          type: string
+          example: "12345678910"
+          minLength: 11
+          maxLength: 14
+          description: CPF (11 dígitos) ou CNPJ (14 dígitos) do pagador. Deve ser enviado sem máscara (sem pontos, traços ou barras), respeitando os zeros à esquerda.
+        email:
+          type: string
+          format: email
+          example: pagador@email.com.br
+          maxLength: 150
+          pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+          description: Endereço de e-mail do pagador. Aceita até 150 caracteres, letras maiúsculas e minúsculas. Deve seguir o formato padrão de e-mail (ex. usuario@dominio.com).
+        phone_number:
+          type: string
+          example: "11999999999"
+          maxLength: 11
+          pattern: "^[0-9]{1,11}$"
+          description: Número de telefone do pagador (DDD + número). Somente dígitos numéricos, até 11 caracteres (ex. 11999999999).
+        address:
+          $ref: "#/components/schemas/address"
+    payment:
+      type: object
+      properties:
+        card:
+          $ref: "#/components/schemas/card"
+        pix:
+          $ref: "#/components/schemas/pix"
+    payment_date_time:
+      type: string
+      format: date-time
+      example: 2025-08-16T13:18:05.802Z
+      readOnly: true
+      description: Data e hora (ISO 8601) em que o checkout foi efetivamente pago pelo cliente. Preenchido automaticamente após a confirmação do pagamento.
+    public_key_response:
+      type: object
+      description: Objeto de resposta da geração de chave pública para uso no checkout transparente.
+      properties:
+        public_key:
+          type: string
+          description: Chave pública no formato PEM, utilizada pelo SDK no frontend para criptografar os dados do cartão e gerar o card hash.
+          example: "-----BEGIN PUBLIC KEY-----\n5QJ...xiTmuuTyFI19n0pHj9+JPw...eMVfHJm\n-----END PUBLIC KEY-----"
+          readOnly: true
+        session_key:
+          type: string
+          description: Identificador da sessão associada à chave pública gerada. Deve ser enviado junto com o card hash no momento da autorização.
+          example: "d575x6da4e274c5095a9222455e755db"
+          readOnly: true
+        expires_in:
+          type: string
+          description: Tempo de expiração da chave pública em segundos. Após esse período, uma nova chave deve ser gerada.
+          example: "600"
+          readOnly: true
+    recurrent:
+      type: boolean
+      default: false
+      example: false
+      description: Indica se a transação é recorrente (assinatura, renovação periódica, etc.). Quando true, essa informação é enviada ao emissor do cartão, o que pode aumentar a taxa de aprovação em cobranças recorrentes.
+    redirect_url:
+      type: string
+      maxLength: 300
+      description: URL para a qual o pagador será redirecionado após finalizar o pagamento no checkout. Aceita até 300 caracteres. Pode ser omitido em integrações com checkout transparente, onde o fluxo é controlado pelo próprio frontend.
+      example: "http://www.seusite.com.br/finalizaPedido"
+    return_code:
+      type: string
+      example: "4"
+      description: Código numérico retornado pela bandeira/emissor que indica o resultado da operação. Útil para diagnóstico e mapeamento de recusas junto à documentação da bandeira.
+      readOnly: true
+    save_card:
+      type: boolean
+      default: false
+      example: true
+      description: Define se o cartão utilizado deve ser tokenizado e armazenado para uso futuro. Se true e a transação for aprovada, um token é retornado na resposta, permitindo cobranças posteriores sem necessidade de redigitar os dados do cartão. Quando `save_card` for enviado com true, o único método de pagamento disponível para a tokenização será o **Cartão de Crédito**. <br> Carteiras Digitais, Pix e Cartão de Débito não suportam `save_card` = true, com isso, esses métodos de pagamento não serão exibidos como opções de pagamento no checkout.
+    soft_descriptor:
+      type: string
+      example: "EM BREVE"
+      description: DISPONÍVEL EM BREVE
+    status:
+      type: string
+      readOnly: true
+      enum:
+        - CREATED
+        - IN PROGRESS
+        - AUTHORIZED, CONFIRMATION PENDING
+        - CONFIRMATION REQUESTED
+        - PAID
+        - CANCELLATION REQUESTED
+        - CANCELLED
+        - DECLINED
+        - EXPIRED
+        - ERROR
+      description: Status atual do ciclo de vida do checkout. CREATED = recém-criado, aguardando pagamento. IN PROGRESS = pagamento em processamento. AUTHORIZED, CONFIRMATION PENDING = autorizado, aguardando confirmação. PAID = pago com sucesso. CANCELLED = cancelado/estornado. DECLINED = recusado pela bandeira/emissor. EXPIRED = expirado sem pagamento. ERROR = erro no processamento. Os status CANCELLED, ERROR, EXPIRED, PAID e DECLINED são terminais (não podem ser alterados).
+    type:
+      type: string
+      enum:
+        - DEBIT
+        - CREDIT
+      description: "Define a modalidade da transação com cartão. DEBIT = transação no débito (valor debitado imediatamente da conta do portador). CREDIT = transação no crédito (pode ser parcelada conforme 'installments')."
+    token:
+      type: string
+      description: Token do cartão obtido em uma transação anterior com save_card = true. Ao enviar este token em uma nova autorização, o pagamento é processado automaticamente com o cartão associado, sem necessidade de redigitar os dados.
+    url:
+      type: string
+      readOnly: true
+      description: URL do checkout gerada automaticamente. Direcione o pagador para esta URL para que ele realize o pagamento. Pode ser ignorada em integrações com checkout transparente.
+      example: https://checkout.c6bank.info/01J3NCKY6Q99QC4D7T733D35QD
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
