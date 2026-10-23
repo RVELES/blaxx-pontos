@@ -5,7 +5,8 @@
 | Peça | Estado |
 |---|---|
 | Código do PIX (cobrança, webhook, polling) | em produção desde 17/09; webhook novo (Checkout + PIX no envelope do C6) em produção desde 22/10 (`b4a6fa9`) |
-| Código do cartão (link de pagamento C6 Pay) | pronto, testado e revisado; sobe desligado (`C6_CHECKOUT_ENABLED=0`) |
+| Código do cartão (link de pagamento C6 Pay) | em produção desde 23/10 (`2d22a77`), desligado (`C6_CHECKOUT_ENABLED` ausente) |
+| Cartão que o site usa HOJE | **Stripe com chave live, ligado** (`/payments/card/config` → provider stripe). Continua até o C6 liberar a produção |
 | Botão "Pagar com cartão" no site | pronto; só aparece quando o backend anuncia o C6 em `/payments/card/config` |
 | Credenciais que o Render usa hoje | **as do sandbox ANTIGO, cancelado pelo C6 em 22/10** → a compra por PIX está quebrada |
 | Credenciais novas do sandbox | em `~/.config/blaxx/c6/` (sandbox.env, sandbox.crt, sandbox.key) |
@@ -30,8 +31,10 @@ Tudo no Render → serviço `blaxx-pontos-exe` → Environment. Os valores estã
 | `C6_KEY_PEM` | conteúdo inteiro de `sandbox.key` |
 | `C6_ENV` | `sandbox` (já está) |
 | `PIX_PROVIDER` | `c6` (já está) |
-| `C6_CHECKOUT_ENABLED` | `1` (liga o cartão) |
-| `C6_CHECKOUT_REDIRECT_URL` | `https://blaxxpontos.com.br/comprar-livre.html` |
+| `C6_CHECKOUT_REDIRECT_URL` | `https://blaxxpontos.com.br/comprar-livre.html` (pode deixar pronto) |
+
+**NÃO ligue `C6_CHECKOUT_ENABLED` nesta etapa.** Ligado, o C6 passa na frente do Stripe
+live, e o link do sandbox não pode ser pago: o cartão, que hoje funciona, pararia.
 
 Depois: **Manual Deploy → Deploy latest commit** (o auto-deploy do Render não dispara).
 
@@ -45,6 +48,9 @@ python3 scripts/c6_registrar_webhooks.py --gravar
 
 O script só cadastra se a produção aceitar o token, e confere os dois cadastros no final.
 
+**O que a etapa A resolve e o que não resolve:** a geração do QR volta a funcionar, mas o
+QR do sandbox não recebe dinheiro de verdade. PIX real só na etapa B.
+
 **Atenção ao risco já conhecido:** com `C6_ENV=sandbox`, um pagamento SIMULADO pelo C6
 creditaria pontos reais. No sandbox novo o C6 não permite pagar cobranças nem links,
 então na prática nada é creditado. Os clientes conseguem ver o QR e o link, mas o dinheiro
@@ -54,7 +60,7 @@ não entra até a etapa B.
 
 1. Gerar a credencial de produção no web banking PJ do C6 (client_id, client_secret e o par .crt/.key de produção) e cadastrar a chave Pix da conta PJ.
 2. Guardar uma cópia em `~/.config/blaxx/c6/producao.env|.crt|.key` (chmod 600, fora do Dropbox).
-3. No Render: trocar `C6_CLIENT_ID`, `C6_CLIENT_SECRET`, `C6_PIX_KEY`, `C6_CERT_PEM`, `C6_KEY_PEM` pelos de produção e `C6_ENV=production`. Manual Deploy.
+3. No Render: trocar `C6_CLIENT_ID`, `C6_CLIENT_SECRET`, `C6_PIX_KEY`, `C6_CERT_PEM`, `C6_KEY_PEM` pelos de produção, `C6_ENV=production` e, só agora, `C6_CHECKOUT_ENABLED=1` (o cartão passa do Stripe para o C6). Manual Deploy.
 4. Rodar de novo `scripts/c6_registrar_webhooks.py --gravar` com as credenciais de produção. Os webhooks são por ambiente: os do sandbox não valem em produção.
 5. Prova de vida: uma compra real de pacote pequeno por PIX e uma por cartão, conferindo o crédito na carteira e o extrato da conta PJ.
 
