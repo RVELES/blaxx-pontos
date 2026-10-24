@@ -6,7 +6,7 @@
 |---|---|
 | Código do PIX (cobrança, webhook, polling) | em produção desde 17/09; webhook novo (Checkout + PIX no envelope do C6) em produção desde 22/10 (`b4a6fa9`) |
 | Código do cartão (link de pagamento C6 Pay) | em produção desde 23/10 (`2d22a77`), desligado (`C6_CHECKOUT_ENABLED` ausente) |
-| Cartão que o site usa HOJE | **Stripe com chave live, ligado** (`/payments/card/config` → provider stripe). Continua até o C6 liberar a produção |
+| Cartão | **Decisão de 24/10: PIX e cartão só pelo C6; o Stripe sai** (`CARD_ENABLED=0`, sem `STRIPE_*`) |
 | Botão "Pagar com cartão" no site | pronto; só aparece quando o backend anuncia o C6 em `/payments/card/config` |
 | Credenciais que o Render usa hoje | **as do sandbox ANTIGO, cancelado pelo C6 em 22/10** → a compra por PIX está quebrada |
 | Credenciais novas do sandbox | em `~/.config/blaxx/c6/` (sandbox.env, sandbox.crt, sandbox.key) |
@@ -31,10 +31,13 @@ Tudo no Render → serviço `blaxx-pontos-exe` → Environment. Os valores estã
 | `C6_KEY_PEM` | conteúdo inteiro de `sandbox.key` |
 | `C6_ENV` | `sandbox` (já está) |
 | `PIX_PROVIDER` | `c6` (já está) |
-| `C6_CHECKOUT_REDIRECT_URL` | `https://blaxxpontos.com.br/comprar-livre.html` (pode deixar pronto) |
+| `C6_WEBHOOK_TOKEN` | de `~/.config/blaxx/c6/webhook_token` (o backend recusa subir sem ele) |
+| `C6_CHECKOUT_ENABLED` | `1` |
+| `C6_CHECKOUT_REDIRECT_URL` | `https://blaxxpontos.com.br/comprar-livre.html` |
+| `CARD_ENABLED` | `0` (ou apagar). Com `1`, o backend exige as chaves do Stripe e recusa subir |
 
-**NÃO ligue `C6_CHECKOUT_ENABLED` nesta etapa.** Ligado, o C6 passa na frente do Stripe
-live, e o link do sandbox não pode ser pago: o cartão, que hoje funciona, pararia.
+Enquanto o C6 não liberar a produção, o QR e o link de cartão são do sandbox: o cliente
+vê, mas não consegue pagar.
 
 Depois: **Manual Deploy → Deploy latest commit** (o auto-deploy do Render não dispara).
 
@@ -60,7 +63,7 @@ não entra até a etapa B.
 
 1. Gerar a credencial de produção no web banking PJ do C6 (client_id, client_secret e o par .crt/.key de produção) e cadastrar a chave Pix da conta PJ.
 2. Guardar uma cópia em `~/.config/blaxx/c6/producao.env|.crt|.key` (chmod 600, fora do Dropbox).
-3. No Render: trocar `C6_CLIENT_ID`, `C6_CLIENT_SECRET`, `C6_PIX_KEY`, `C6_CERT_PEM`, `C6_KEY_PEM` pelos de produção, `C6_ENV=production` e, só agora, `C6_CHECKOUT_ENABLED=1` (o cartão passa do Stripe para o C6). Manual Deploy.
+3. No Render: trocar `C6_CLIENT_ID`, `C6_CLIENT_SECRET`, `C6_PIX_KEY`, `C6_CERT_PEM`, `C6_KEY_PEM` pelos de produção e `C6_ENV=production`. Manual Deploy.
 4. Rodar de novo `scripts/c6_registrar_webhooks.py --gravar` com as credenciais de produção. Os webhooks são por ambiente: os do sandbox não valem em produção.
 5. Prova de vida: uma compra real de pacote pequeno por PIX e uma por cartão, conferindo o crédito na carteira e o extrato da conta PJ.
 
