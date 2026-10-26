@@ -73,7 +73,7 @@ def main() -> int:
     )
     p = C6PixProvider(cid, os.environ["C6_CLIENT_SECRET"], os.environ["C6_PIX_KEY"],
                       cert_path=cert, key_path=key, sandbox=sandbox)
-    m = lambda s: _mascara(s, token, cid)  # noqa: E731
+    m = lambda s: _mascara(s, token, cid, os.environ.get("C6_PIX_KEY", "").strip())  # noqa: E731
 
     url_pix = f"{args.base}/payments/c6/webhook/{token}"
     url_checkout = f"{url_pix}/checkout"
