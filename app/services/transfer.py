@@ -471,6 +471,7 @@ def promote_pending(transfers: list[Transfer] | None = None) -> int:
         transfers = [t for t in transfers if t.is_pending and not t.is_cancellable]
 
     promoted = 0
+    promovidas: list[Transfer] = []  # só as que ESTA chamada promoveu (e-mail sem duplicar)
     for t in transfers:
         try:
             # Trava a transfer e revalida o estado SOB lock antes de mexer no
@@ -532,6 +533,7 @@ def promote_pending(transfers: list[Transfer] | None = None) -> int:
                 commit=False,
             )
             promoted += 1
+            promovidas.append(t)
 
             # Push best-effort
             try:
@@ -555,6 +557,9 @@ def promote_pending(transfers: list[Transfer] | None = None) -> int:
 
     if promoted:
         db.session.commit()
+        from . import avisos_email
+        for t in promovidas:
+            avisos_email.transferencia_concluida(t)
         for _ in range(promoted):
             metrics_svc.inc_transfer("committed")
 

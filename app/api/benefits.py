@@ -125,6 +125,8 @@ def redeem(benefit_id: str):
         reference=voucher.id,
     ))
     db.session.commit()
+    from ..services import avisos_email
+    avisos_email.troca_produto(voucher, benefit)
     return jsonify(voucher.to_dict()), 201
 
 

@@ -252,6 +252,8 @@ def request_redeem(
             )
         except Exception:
             pass
+        from . import avisos_email
+        avisos_email.venda(payout)
         return payout
 
     resp = _provider().request_payout(
@@ -305,6 +307,8 @@ def request_redeem(
                               data={"payout_id": payout.id, "status": payout.status.value})
     except Exception:
         pass
+    from . import avisos_email
+    avisos_email.venda(payout)
     return payout
 
 
@@ -329,6 +333,8 @@ def confirm_payout(txid: str, *, end_to_end_id: str | None = None) -> PixPayout:
     if end_to_end_id:
         payout.end_to_end_id = end_to_end_id
     db.session.commit()
+    from . import avisos_email
+    avisos_email.venda(payout)
     return payout
 
 
@@ -370,4 +376,6 @@ def fail_payout(txid: str, *, reason: str) -> PixPayout:
         )
     except Exception:
         pass
+    from . import avisos_email
+    avisos_email.venda(payout)
     return payout

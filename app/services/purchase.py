@@ -536,6 +536,9 @@ def confirm_payment(txid: str, *, provider_confirmed: bool = False) -> PixCharge
         )
     except Exception:
         pass
+    from . import avisos_email
+    avisos_email.compra_confirmada(
+        charge, meio="Cartão" if charge.flow == "c6-cartao" else "Pix")
     return charge
 
 

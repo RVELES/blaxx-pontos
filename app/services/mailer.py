@@ -214,11 +214,13 @@ _FONTE = "'Helvetica Neue',Helvetica,Arial,sans-serif"
 def _layout_html(*, preheader: str, titulo: str, paragrafos: list[str],
                  botao: tuple[str, str] | None = None,
                  codigo: str | None = None,
+                 recibo: list[tuple[str, str]] | None = None,
                  nota: str | None = None) -> str:
     """Monta o e-mail com a identidade da BlaXx.
 
     `paragrafos` e `nota` já devem vir escapados (podem conter <b>).
     `botao` = (texto, url). `codigo` aparece em destaque, fonte mono.
+    `recibo` = linhas (rótulo, valor) em texto puro, no estilo do recibo do site.
     """
     p_html = "".join(
         f'<p style="margin:0 0 16px;font:16px/1.55 {_FONTE};color:#0A0B0E">{p}</p>'
@@ -247,6 +249,19 @@ def _layout_html(*, preheader: str, titulo: str, paragrafos: list[str],
             f'letter-spacing:8px;color:#59FD27">{escape(codigo)}</span>'
             '</td></tr></table>'
         )
+    recibo_html = ""
+    if recibo:
+        linhas = "".join(
+            '<tr>'
+            f'<td style="padding:10px 0;border-bottom:1px dashed #B9B6AE;font:14px {_FONTE};color:#555860">{escape(r)}</td>'
+            f'<td align="right" style="padding:10px 0;border-bottom:1px dashed #B9B6AE;font:bold 14px {_FONTE};color:#0A0B0E">{escape(v)}</td>'
+            '</tr>'
+            for r, v in recibo
+        )
+        recibo_html = (
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            'style="margin:4px 0 22px;border-top:2px solid #0A0B0E">' + linhas + '</table>'
+        )
     nota_html = (
         f'<p style="margin:8px 0 0;padding-top:16px;border-top:1px dashed #B9B6AE;'
         f'font:13px/1.5 {_FONTE};color:#555860">{nota}</p>'
@@ -269,7 +284,7 @@ def _layout_html(*, preheader: str, titulo: str, paragrafos: list[str],
   <tr><td style="height:6px;background:#59FD27;font-size:0;line-height:0">&nbsp;</td></tr>
   <tr><td style="padding:30px 30px 26px">
     <h1 style="margin:0 0 18px;font:bold 24px/1.25 {_FONTE};color:#0A0B0E">{escape(titulo)}</h1>
-    {p_html}{codigo_html}{botao_html}
+    {p_html}{recibo_html}{codigo_html}{botao_html}
     <p style="margin:0;font:16px/1.55 {_FONTE};color:#0A0B0E">Um abraço,<br><b>Equipe BlaXx</b></p>
     {nota_html}
   </td></tr>
@@ -400,3 +415,213 @@ def send_email_verification(to_email: str, name: str, code: str) -> bool:
         to=to_email, subject=f"BlaXx · Seu código: {code}",
         body_text=texto, body_html=html,
     ))
+
+
+# ---------------------------------------------------------------------
+# E-mails de movimentação de pontos (compra, venda, envio, troca).
+# Transacionais: saem sempre, sem depender de consentimento de marketing.
+# ---------------------------------------------------------------------
+
+_APP_URL = _SITE_URL + "/dashboard"
+
+
+def _pts(n: int) -> str:
+    return f"{int(n):,}".replace(",", ".") + " pts"
+
+
+def _brl(cents: int) -> str:
+    inteiro, centavos = divmod(int(cents), 100)
+    return "R$ " + f"{inteiro:,}".replace(",", ".") + f",{centavos:02d}"
+
+
+def _mascarar_chave(chave: str) -> str:
+    chave = (chave or "").strip()
+    return ("•••• " + chave[-4:]) if len(chave) > 4 else "••••"
+
+
+def _texto_recibo(recibo: list[tuple[str, str]]) -> str:
+    return "".join(f"  {r}: {v}\n" for r, v in recibo)
+
+
+def _enviar_evento(to_email: str, subject: str, *, preheader: str, titulo: str,
+                   paragrafos_txt: list[str], recibo: list[tuple[str, str]],
+                   botao: tuple[str, str] | None = None,
+                   nota: str | None = None, codigo: str | None = None) -> bool:
+    """Monta HTML + texto a partir dos mesmos parágrafos (texto puro)."""
+    html = _layout_html(
+        preheader=preheader, titulo=titulo,
+        paragrafos=[escape(p) for p in paragrafos_txt],
+        recibo=recibo, botao=botao, codigo=codigo,
+        nota=escape(nota) if nota else None,
+    )
+    texto = "\n\n".join(paragrafos_txt) + "\n\n" + _texto_recibo(recibo)
+    if codigo:
+        texto += f"\n  Código: {codigo}\n"
+    if botao:
+        texto += f"\n{botao[0]}: {botao[1]}\n"
+    if nota:
+        texto += f"\n{nota}\n"
+    texto += "\nUm abraço,\nEquipe BlaXx"
+    return get_mailer().send(EmailMessage(to=to_email, subject=subject,
+                                          body_text=texto, body_html=html))
+
+
+def send_compra_confirmada(to_email: str, name: str, *, pontos: int,
+                           valor_cents: int, meio: str, referencia: str,
+                           saldo: int | None = None) -> bool:
+    recibo = [("Pontos creditados", "+" + _pts(pontos)),
+              ("Valor pago", _brl(valor_cents)),
+              ("Forma de pagamento", meio),
+              ("Comprovante", referencia[:12].upper())]
+    if saldo is not None:
+        recibo.append(("Saldo atual", _pts(saldo)))
+    return _enviar_evento(
+        to_email, f"BlaXx · +{_pts(pontos)} na sua carteira",
+        preheader=f"Pagamento confirmado: {_pts(pontos)} já estão na sua carteira.",
+        titulo="Pontos na carteira!",
+        paragrafos_txt=[f"Oi, {_primeiro_nome(name)}!",
+                        "Seu pagamento foi confirmado e os pontos já estão na sua "
+                        "carteira, prontos para usar."],
+        recibo=recibo, botao=("Ver minha carteira", _APP_URL),
+        nota="Não reconhece esta compra? Fale com a gente no WhatsApp (11) 92470-6095.",
+    )
+
+
+def send_envio_concluido(to_email: str, name: str, *, pontos: int,
+                         destinatario: str, codigo: str,
+                         mensagem: str | None = None,
+                         saldo: int | None = None) -> bool:
+    recibo = [("Pontos enviados", "-" + _pts(pontos)),
+              ("Para", destinatario),
+              ("Código do envio", codigo)]
+    if mensagem:
+        recibo.append(("Mensagem", mensagem))
+    if saldo is not None:
+        recibo.append(("Saldo atual", _pts(saldo)))
+    return _enviar_evento(
+        to_email, f"BlaXx · Você enviou {_pts(pontos)} para {destinatario}",
+        preheader=f"{_pts(pontos)} chegaram para {destinatario}.",
+        titulo="Pontos entregues!",
+        paragrafos_txt=[f"Oi, {_primeiro_nome(name)}!",
+                        f"Seus pontos chegaram para {destinatario}. "
+                        "Que gesto bacana!"],
+        recibo=recibo, botao=("Ver meu extrato", _APP_URL),
+        nota="Não foi você? Troque sua senha e fale com a gente no WhatsApp (11) 92470-6095.",
+    )
+
+
+def send_pontos_recebidos(to_email: str, name: str, *, pontos: int,
+                          remetente: str, codigo: str,
+                          mensagem: str | None = None,
+                          saldo: int | None = None) -> bool:
+    paragrafos = [f"Oi, {_primeiro_nome(name)}!",
+                  f"{remetente} acabou de te enviar pontos. Eles já estão na "
+                  "sua carteira."]
+    if mensagem:
+        paragrafos.append(f"Recado de {remetente}: “{mensagem}”")
+    recibo = [("Pontos recebidos", "+" + _pts(pontos)),
+              ("De", remetente),
+              ("Código do envio", codigo)]
+    if saldo is not None:
+        recibo.append(("Saldo atual", _pts(saldo)))
+    return _enviar_evento(
+        to_email, f"BlaXx · {remetente} te enviou {_pts(pontos)}",
+        preheader=f"+{_pts(pontos)} na sua carteira.",
+        titulo="Chegaram pontos pra você!",
+        paragrafos_txt=paragrafos, recibo=recibo,
+        botao=("Ver minha carteira", _APP_URL),
+    )
+
+
+def send_venda_solicitada(to_email: str, name: str, *, pontos: int,
+                          valor_cents: int, chave_pix: str,
+                          saldo: int | None = None) -> bool:
+    recibo = [("Pontos vendidos", "-" + _pts(pontos)),
+              ("Você recebe", _brl(valor_cents)),
+              ("Chave Pix", _mascarar_chave(chave_pix)),
+              ("Prazo", "até 1 dia útil")]
+    if saldo is not None:
+        recibo.append(("Saldo atual", _pts(saldo)))
+    return _enviar_evento(
+        to_email, f"BlaXx · Recebemos sua venda de {_pts(pontos)}",
+        preheader=f"{_brl(valor_cents)} a caminho da sua conta via Pix.",
+        titulo="Venda recebida!",
+        paragrafos_txt=[f"Oi, {_primeiro_nome(name)}!",
+                        f"Recebemos o seu pedido de venda. Os {_brl(valor_cents)} "
+                        "vão para a sua chave Pix em até 1 dia útil, e a gente "
+                        "te avisa assim que o dinheiro sair."],
+        recibo=recibo,
+        nota="Se o Pix não puder ser feito, os pontos voltam para a sua carteira.",
+    )
+
+
+def send_venda_paga(to_email: str, name: str, *, pontos: int,
+                    valor_cents: int, chave_pix: str) -> bool:
+    return _enviar_evento(
+        to_email, f"BlaXx · Pix de {_brl(valor_cents)} enviado",
+        preheader="O dinheiro da sua venda de pontos já saiu.",
+        titulo="Pix enviado!",
+        paragrafos_txt=[f"Oi, {_primeiro_nome(name)}!",
+                        f"O Pix de {_brl(valor_cents)} da sua venda de pontos "
+                        "foi enviado. Confira no app do seu banco."],
+        recibo=[("Valor", _brl(valor_cents)),
+                ("Pontos vendidos", _pts(pontos)),
+                ("Chave Pix", _mascarar_chave(chave_pix))],
+        botao=("Ver meu extrato", _APP_URL),
+    )
+
+
+def send_venda_falhou(to_email: str, name: str, *, pontos: int,
+                      valor_cents: int, motivo: str) -> bool:
+    return _enviar_evento(
+        to_email, "BlaXx · Seus pontos voltaram para a carteira",
+        preheader="Não conseguimos fazer o Pix, e os pontos foram devolvidos.",
+        titulo="Não deu para enviar o Pix",
+        paragrafos_txt=[f"Oi, {_primeiro_nome(name)}!",
+                        f"Não conseguimos enviar o Pix de {_brl(valor_cents)}. "
+                        "Mas fica tranquilo: os pontos já voltaram para a sua "
+                        "carteira. Confira a chave Pix e tente de novo."],
+        recibo=[("Pontos devolvidos", "+" + _pts(pontos)),
+                ("Motivo", motivo)],
+        botao=("Tentar de novo", _APP_URL),
+    )
+
+
+def send_troca_produto(to_email: str, name: str, *, produto: str, pontos: int,
+                       codigo_voucher: str, validade: str,
+                       saldo: int | None = None) -> bool:
+    recibo = [("Produto", produto),
+              ("Pontos usados", "-" + _pts(pontos)),
+              ("Use até", validade)]
+    if saldo is not None:
+        recibo.append(("Saldo atual", _pts(saldo)))
+    return _enviar_evento(
+        to_email, f"BlaXx · Seu voucher: {produto}",
+        preheader=f"Troca feita! Seu código é {codigo_voucher}.",
+        titulo="Troca feita!",
+        paragrafos_txt=[f"Oi, {_primeiro_nome(name)}!",
+                        f"Você trocou seus pontos por {produto}. Aproveite! "
+                        "Apresente o código abaixo para usar o seu voucher:"],
+        recibo=recibo, codigo=codigo_voucher,
+        botao=("Ver meus vouchers", _APP_URL),
+        nota=f"O voucher vale até {validade}. Ele também fica guardado no app, em Vouchers.",
+    )
+
+
+def disparar(fn, *args, **kwargs) -> None:
+    """Envia em segundo plano, sem nunca quebrar a operação que já foi gravada.
+
+    Webhooks de pagamento e o worker de transferências não podem esperar até
+    15 s pelo Resend. Com mailer de console/noop (dev e testes) roda na hora.
+    """
+    def _rodar():
+        try:
+            fn(*args, **kwargs)
+        except Exception:
+            logger.exception("e-mail %s falhou", getattr(fn, "__name__", fn))
+
+    if get_mailer().name != "resend":
+        _rodar()
+        return
+    import threading
+    threading.Thread(target=_rodar, daemon=True).start()

@@ -351,6 +351,8 @@ def apply_webhook_status(charge: CardCharge, mp_status: str,
                 )
             except Exception:
                 pass
+            from . import avisos_email
+            avisos_email.compra_confirmada(charge, meio="Cartão")
         return charge
 
     if mp_status in ("refunded", "charged_back"):
