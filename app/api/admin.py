@@ -1335,6 +1335,20 @@ def admin_update_campaign(campaign_id: str):
     return jsonify(c.to_dict())
 
 
+@bp.patch("/partners/<partner_id>")
+@login_required
+@admin_required
+def admin_update_partner(partner_id: str):
+    p = db.session.get(Partner, partner_id)
+    if p is None:
+        return jsonify({"error": "parceiro não encontrado"}), 404
+    d = request.get_json(silent=True) or {}
+    if "is_active" in d:
+        p.is_active = bool(d["is_active"])
+    db.session.commit()
+    return jsonify(p.to_dict())
+
+
 @bp.patch("/benefits/<benefit_id>")
 @login_required
 @admin_required

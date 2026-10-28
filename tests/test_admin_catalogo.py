@@ -117,6 +117,27 @@ def test_desativar_campanha_some_da_listagem_publica(app, client):
     assert client.get("/campaigns/").get_json()["items"] == []
 
 
+def test_desativar_parceiro_some_da_listagem_publica(app, client):
+    H = _tok(app, client)
+    pid = client.post("/admin/partners", json={"name": "P", "category": "X"},
+                      headers=H).get_json()["id"]
+    assert len(client.get("/partners/").get_json()["items"]) == 1
+    assert client.patch(f"/admin/partners/{pid}", json={"is_active": False},
+                        headers=H).status_code == 200
+    assert client.get("/partners/").get_json()["items"] == []
+    assert client.get(f"/partners/{pid}").status_code == 404
+
+
+def test_usuario_comum_nao_desativa_parceiro(app, client):
+    H = _tok(app, client)
+    pid = client.post("/admin/partners", json={"name": "P", "category": "X"},
+                      headers=H).get_json()["id"]
+    U = _tok(app, client, cpf="52998224725", email="u@x.test", role="user")
+    assert client.patch(f"/admin/partners/{pid}", json={"is_active": False},
+                        headers=U).status_code == 403
+    assert len(client.get("/partners/").get_json()["items"]) == 1
+
+
 def test_usuario_comum_nao_cria_catalogo(app, client):
     H = _tok(app, client, cpf="52998224725", email="u@x.test", role="user")
     for rota in ("/admin/partners", "/admin/benefits", "/admin/campaigns"):
