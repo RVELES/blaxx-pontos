@@ -131,6 +131,9 @@ class ResendMailer:
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
+                # Sem User-Agent o urllib manda "Python-urllib/3.x", que o
+                # Cloudflare do Resend bloqueia com 403 "error code: 1010".
+                "User-Agent": "blaxx-pontos-backend/1.0",
             },
         )
         try:
