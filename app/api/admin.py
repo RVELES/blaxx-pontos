@@ -522,6 +522,60 @@ def set_user_status(user_id: str):
     return jsonify({"id": u.id, "status": u.status})
 
 
+@bp.post("/users/<user_id>/liberar-identidade")
+@login_required
+@admin_required
+def liberar_identidade(user_id: str):
+    """Fecha uma conta de TESTE e libera e-mail, CPF, celular e vínculo Google
+    para um cadastro novo (ex.: gravar o vídeo de cadastro pedido pela Apple).
+
+    Diferente de `DELETE /auth/account` (LGPD), que guarda o CPF por 5 anos:
+    aqui o CPF também sai, então é só para contas de teste do próprio dono.
+    O ledger fica intacto e o auditor guarda só hashes do que foi liberado.
+
+    Body: {"confirm": "LIBERAR", "reason": "..."}
+    """
+    import hashlib
+    from ..models import SocialAccount
+    from ..services import audit as audit_svc
+
+    body = request.get_json(silent=True) or {}
+    if (body.get("confirm") or "").strip() != "LIBERAR":
+        return jsonify({"error": 'confirmação inválida (envie confirm: "LIBERAR")'}), 400
+    u = db.session.get(User, user_id)
+    if u is None:
+        return jsonify({"error": "usuário não encontrado"}), 404
+    if u.id == g.current_user.id:
+        return jsonify({"error": "você não pode liberar a própria conta"}), 403
+    if u.role == "admin":
+        return jsonify({"error": "conta de administrador não pode ser liberada"}), 403
+
+    def _h(v):
+        return hashlib.sha256((v or "").encode()).hexdigest()[:16] if v else None
+
+    antes = {"email_sha": _h(u.email), "cpf_sha": _h(u.cpf), "phone_sha": _h(u.phone),
+             "google": bool(u.google_sub),
+             "balance_pts": u.wallet.balance_pts if u.wallet else 0}
+    curto = (u.id or "")[:12]
+    u.email = f"liberado_{curto}@removed.local"
+    u.cpf = f"L:{curto}"
+    u.phone = None
+    u.google_sub = None
+    u.pix_key = None
+    u.name = "Conta Liberada"
+    u.password_hash = ""
+    u.password_changed_at = datetime.now(timezone.utc)  # derruba todas as sessões
+    u.status = "closed"
+    db.session.query(SocialAccount).filter_by(user_id=u.id).delete()
+    audit_svc.log_event(
+        "admin_liberar_identidade", user_id=g.current_user.id, status="ok",
+        reason=(body.get("reason") or None),
+        extra={"target_user": u.id, **antes}, commit=False,
+    )
+    db.session.commit()
+    return jsonify({"id": u.id, "status": u.status, "liberado": ["email", "cpf", "phone", "google"]})
+
+
 # ───────────────── Estorno de transferência P2P ───────────────── #
 
 @bp.post("/transfers/<transfer_id>/reverse")
